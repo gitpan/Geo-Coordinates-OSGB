@@ -1,0 +1,14 @@
+Changes
+MANIFEST
+Makefile.PL
+README
+lib/Geo/Coordinates/OSGB.pm
+t/00load.t
+t/random.t
+t/known.t
+coco.pl
+plotmaps.pl
+plotmaps.pdf
+gb-coastline.dat
+lr-index.txt
+META.yml                                 Module meta-data (added by MakeMaker)

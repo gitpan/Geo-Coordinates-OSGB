@@ -1,0 +1,48 @@
+Revision history for Perl extension Geo::Coordinates::OSGB
+
+0.01  Fri Mar  2 19:05:50 2001
+        - original version; created by h2xs 1.19
+
+1.02  November 13, 2002
+        - No changes to code, just tidied the documentation
+
+1.03  18 December 2002
+        - changed name for CPAN release
+        - improved ll2grid function
+        - new ll2map and map2ll functions
+
+
+1.04  29 September 2004
+
+        - corrected a bug in grid2ll, where long/lat values with
+          0 degrees were always printed as positive in scalar form
+          The problem was that -1 * 0 = +0 in Perl (as is says in
+          book somewhere).
+
+        - added simple coco.pl script to provide command line coordinate
+          conversions.
+
+        - actually implemented the long-promised map2ll and ll2map functions
+          as well as map2grid and grid2map for completeness.  With these functions
+          you can convert to and from coordinates in a more useable form, such
+          as "OS Sheet 43; 875123".
+
+        - added a demonstration script --- plotmaps.pl --- which will produce
+          a pretty index of the Landranger maps, showing the GB coast line and the
+          large grid squares.  The output is in PostScript.  Use GhostScript to process
+          it.  A PDF version of the output is also included.
+
+        - added a useful file with all the names and other details of the Landranger Sheets
+
+1.05 29 March 2005
+
+       - Not released
+
+1.06 16 May 2005
+
+       - general clean up
+
+       - made the format and parse routines external to avoid spaghetti connections
+
+       - added support for grid references in GPS format (eg TQ 32342 24312)
+

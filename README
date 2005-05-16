@@ -1,0 +1,30 @@
+Geo::Coordinates::OSGB
+----------------------
+
+Routines to convert latitude and longitude coordinates to and from
+UK national grid references.  Can also tell you which Landranger map
+your point appears on.
+
+INSTALLATION
+
+This package installs in the regular Perl way.  You don't need
+the C compiler and as far as I know there are no platform dependencies.
+Unzip it to some temporary home, then do the usual thing
+
+        Perl Makefile.PL
+        make
+        make test
+        make install
+
+DEPENDENCIES
+
+None
+
+COPYRIGHT AND LICENCE
+
+Copyright (C) 2002-2005 Toby Thurston
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
+
+All feedback gratefully received.
