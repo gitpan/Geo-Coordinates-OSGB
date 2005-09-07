@@ -6,6 +6,10 @@ use strict;
 # Toby Thurston --- 16 May 2005
 #
 use Geo::Coordinates::OSGB "ll2grid", "map2ll", "parse_landranger_grid", "format_grid_GPS";
+use Getopt::Std;
+our $opt_a = 4;
+getopt('a'); # paper size...
+$opt_a = 4 unless $opt_a =~ /\A\d\Z/ && $opt_a < 6;
 
 
 my @sheets = ();
@@ -51,14 +55,27 @@ for my $sheet (1 .. 204) {
 
 # allow for most north-eastern sheets
 $extreme_east  += $sheet_size;
-$extreme_north += $sheet_size;
+$extreme_south += $sheet_size;
+$extreme_north += $sheet_size*4; # allow for the top most grid square ...
 
 my $ew_range = $extreme_east-$extreme_west;
 my $ns_range = $extreme_north-$extreme_south;
 
-# size of the printable area in Postscript points (1/72 inch)
-my $width = 539;
-my $height = 765;
+# size of the sheets in mm
+my ($width, $height) = (148,210);
+
+$opt_a == 4 && (($width, $height) = (210,297));
+$opt_a == 3 && (($width, $height) = (297,420));
+$opt_a == 2 && (($width, $height) = (420,594));
+$opt_a == 1 && (($width, $height) = (594,840));
+$opt_a == 0 && (($width, $height) = (840,1188));
+
+# convert to points and deduct margins (20pts)
+$width  = int($width  / 25.4 * 72 + 0.5) - 40;
+$height = int($height / 25.4 * 72 + 0.5) - 40;
+
+my $urx = $width  + 20;
+my $ury = $height + 20;
 
 my $scale = 1000 * $width / $ew_range;
 my $h_scale = 1000 * $height / $ns_range;
@@ -69,7 +86,7 @@ print << "PREAMBLE";
 %%Copyright: (c) 2005 Toby Thurston
 %%Title:(Index to the Landranger Sheets)
 %%CreationDate: (16 May 2005)
-%%BoundingBox: 20 20 578 825
+%%BoundingBox: 20 20 $urx $ury
 %%Pages: 1
 %%EndComments
 %%BeginSetup
@@ -82,9 +99,10 @@ print << "PREAMBLE";
 /pgsave save def
 %%EndPageSetup
 small
-100 20 translate
--80 0 550 805 rectclip
 $scale dup scale
+170 30 translate
+-120 0 850 1280 rectclip
+
 PREAMBLE
 
 # a file of longitude & latitude data in "matlab" format

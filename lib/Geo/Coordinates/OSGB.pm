@@ -5,16 +5,16 @@ our ($VERSION, @ISA, @EXPORT, @EXPORT_OK);
 
 @ISA = qw(Exporter);
 
-$VERSION = '1.06';
+$VERSION = '1.07';
 
 =head1 NAME
 
-Geo::Coordinates::OSGB --- Convert Coordinates from Long/Lat to UK Grid
+Geo::Coordinates::OSGB --- Convert Coordinates from Lat/Long to UK Grid
 
 A UK-specific implementation of co-ordinate conversion, following formulae from the
 Ordnance Survey of Great Britain (hence the name).
 
-Version: 1.06
+Version: 1.07
 
 =head1 SYNOPSIS
 
@@ -22,7 +22,7 @@ Version: 1.06
 
   # basic conversion routines
   ($easting,$northing) = ll2grid($lat,$lon);
-  ($long,$lat) = grid2ll($easting,$northing);
+  ($lat,$long) = grid2ll($easting,$northing);
 
   # format full easting and northing into traditional formats
   $trad_gr       = format_grid_trad($easting,$northing);  # TQ 234 098
@@ -384,7 +384,7 @@ None is exported by default.
 
 This code is fine tuned to the British national grid system.  You can use it
 elsewhere but you will need to adapt it.  This is explained in some detail in
-the L<Examples> section below.
+the L<"Examples"> section below.
 
 The default values for ellipsoid and projection are suitable for mapping
 between GPS longitude and latitude data and the UK National Grid.
@@ -527,7 +527,7 @@ truncated easting, and the truncated northing if you call it in a list
 context.
 
 Note that, at least until WAAS is working in Europe, the results from your GPS are
-unlikely to be more accurate that plus or minus 10m even with perfect reception.
+unlikely to be more accurate than plus or minus 10m even with perfect reception.
 
 =cut
 
@@ -1039,7 +1039,7 @@ sides of the grid.
 
 =head1 AUTHOR
 
-Toby Thurston --- 16 May 2005
+Toby Thurston ---  7 Sep 2005
 
 web: http://www.wildfire.dircon.co.uk
 
