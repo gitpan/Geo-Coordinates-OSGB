@@ -1,16 +1,38 @@
 Revision history for Perl extension Geo::Coordinates::OSGB
 
-0.01  Fri Mar  2 19:05:50 2001
-        - original version; created by h2xs 1.19
+2.00 October 2007
 
-1.02  November 13, 2002
-        - No changes to code, just tidied the documentation
+    - New version with routines to do adjustment to and from latitude and
+      longitude coordinates based on the (now ubiquitous) WGS84 model, for
+      more compatible use with GPS receivers and Google Earth and similar
+      tools.
 
-1.03  18 December 2002
-        - changed name for CPAN release
-        - improved ll2grid function
-        - new ll2map and map2ll functions
+    - Includes not only fast approximate adjustment as used in most
+      coordinate tools and devices, but also the definitive-but-slow OSTN02
+      transformation based on OSGB data
 
+    - Step version number
+
+    - POD completely revised
+
+
+1.07 7 September 2005
+
+       - corrected link in POD
+
+       - various minor documentation corrections
+
+1.06 16 May 2005
+
+       - general clean up
+
+       - made the format and parse routines external to avoid spaghetti connections
+
+       - added support for grid references in GPS format (eg TQ 32342 24312)
+
+1.05 29 March 2005
+
+       - Not released
 
 1.04  29 September 2004
 
@@ -35,20 +57,14 @@ Revision history for Perl extension Geo::Coordinates::OSGB
         - added a useful file with all the names and other details of the
           Landranger Sheets
 
-1.05 29 March 2005
+1.03  18 December 2002
+        - changed name for CPAN release
+        - improved ll2grid function
+        - new ll2map and map2ll functions
 
-       - Not released
 
-1.06 16 May 2005
+1.02  November 13, 2002
+        - No changes to code, just tidied the documentation
 
-       - general clean up
-
-       - made the format and parse routines external to avoid spaghetti connections
-
-       - added support for grid references in GPS format (eg TQ 32342 24312)
-
-1.07 7 September 2005
-
-       - corrected link in POD
-
-       - various minor documentation corrections
+0.01  Fri Mar  2 19:05:50 2001
+        - original version; created by h2xs 1.19

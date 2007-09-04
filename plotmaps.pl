@@ -5,7 +5,7 @@ use strict;
 # complete with the GB coast line and the 100km grid sqaure letters.
 # Toby Thurston --- 16 May 2005
 #
-use Geo::Coordinates::OSGB "ll2grid", "map2ll", "parse_landranger_grid", "format_grid_GPS";
+use Geo::Coordinates::OSGB "ll_to_grid", "parse_landranger_grid", "format_grid_GPS";
 use Getopt::Std;
 our $opt_a = 4;
 getopt('a'); # paper size...
@@ -61,7 +61,7 @@ $extreme_north += $sheet_size*4; # allow for the top most grid square ...
 my $ew_range = $extreme_east-$extreme_west;
 my $ns_range = $extreme_north-$extreme_south;
 
-# size of the sheets in mm
+# size of the paper in mm
 my ($width, $height) = (148,210);
 
 $opt_a == 4 && (($width, $height) = (210,297));
@@ -82,10 +82,11 @@ my $h_scale = 1000 * $height / $ns_range;
 $scale = $h_scale if $h_scale < $scale;
 
 print << "PREAMBLE";
-%!PS-Adobe-3.0
-%%Copyright: (c) 2005 Toby Thurston
+%!PS-Adobe-3.0 EPSF-3.0
+%%Creator: $0
+%%Copyright: (C) 2007 Toby Thurston
 %%Title:(Index to the Landranger Sheets)
-%%CreationDate: (16 May 2005)
+%%CreationDate: (17 Jan 2007)
 %%BoundingBox: 20 20 $urx $ury
 %%Pages: 1
 %%EndComments
@@ -117,7 +118,7 @@ while (<GB>) {
         $cmd = 'moveto'
     }
     else {
-        my ($e, $n) = ll2grid($lat,$lon);
+        my ($e, $n) = ll_to_grid($lat,$lon);
         printf "%.3f %.3f %s\n", $e/1000, $n/1000, $cmd;
         $cmd = 'lineto' if ($cmd eq 'moveto');
     }
@@ -127,20 +128,20 @@ print "grestore\n";
 
 print "gsave .6 1 .6 setrgbcolor\n";
 for my $lon (-9 .. 2) {
-    my ($e, $n) = ll2grid(49.95, $lon);
+    my ($e, $n) = ll_to_grid(49.95, $lon);
     printf "%.3f %.3f moveto gsave 2 0 rmoveto small ($lon) show /degree glyphshow grestore\n", $e/1000, $n/1000;
     for my $lat (500 .. 609) {
-        ($e,$n) = ll2grid($lat/10, $lon);
+        ($e,$n) = ll_to_grid($lat/10, $lon);
         printf "%.3f %.3f lineto\n", $e/1000, $n/1000;
     }
     print "gsave 2 0 rmoveto small ($lon) show /degree glyphshow grestore stroke\n";
 }
 
 for my $lat (51 .. 60) {
-    my ($e, $n) = ll2grid($lat, -9.2);
+    my ($e, $n) = ll_to_grid($lat, -9.2);
     printf "%.3f %.3f moveto gsave -2 2 rmoveto small ($lat) show /degree glyphshow grestore\n", $e/1000, $n/1000;
     for my $lon (-91 .. 22) {
-        ($e,$n) = ll2grid($lat, $lon/10);
+        ($e,$n) = ll_to_grid($lat, $lon/10);
         printf "%.3f %.3f lineto\n", $e/1000, $n/1000;
     }
     print "gsave 0 2 rmoveto small ($lat) show /degree glyphshow grestore stroke\n";

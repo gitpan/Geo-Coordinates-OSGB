@@ -1,69 +1,28 @@
 package Geo::Coordinates::OSGB;
 require Exporter;
 use strict;
-our ($VERSION, @ISA, @EXPORT, @EXPORT_OK);
+use warnings;
 
-@ISA = qw(Exporter);
+our @ISA = qw(Exporter);
+our $VERSION = '2.00';
+our @EXPORT = qw();
+our @EXPORT_OK = qw(
+    ll_to_grid
+    grid_to_ll
+    parse_ll
+    format_ll_dms
+    format_ll_ISO
+    parse_grid
+    parse_trad_grid
+    parse_GPS_grid
+    parse_landranger_grid
+    format_grid_trad
+    format_grid_GPS
+    format_grid_landranger
+    shift_ll_into_WGS84
+    shift_ll_from_WGS84
+);
 
-$VERSION = '1.07';
-
-=head1 NAME
-
-Geo::Coordinates::OSGB --- Convert Coordinates from Lat/Long to UK Grid
-
-A UK-specific implementation of co-ordinate conversion, following formulae from the
-Ordnance Survey of Great Britain (hence the name).
-
-Version: 1.07
-
-=head1 SYNOPSIS
-
-  use Geo::Coordinates::OSGB qw(ll2grid grid2ll);
-
-  # basic conversion routines
-  ($easting,$northing) = ll2grid($lat,$lon);
-  ($lat,$long) = grid2ll($easting,$northing);
-
-  # format full easting and northing into traditional formats
-  $trad_gr       = format_grid_trad($easting,$northing);  # TQ 234 098
-  $GPS_gr        = format_grid_GPS($easting,$northing);   # TQ 23451 09893
-  $landranger_gr = format_grid_landranger($easting, $northing) # 234098 on Sheet 176
-
-  # you can call these in list context to get the individual parts
-  # add "=~ s/\s//g" to the result to remove the spaces
-
-  # and there are corresponding parse routines to convert from these formats to full e,n
-  ($e,$n) = parse_trad_grid('TQ 234 098'); # spaces optional, can give list as well
-  ($e,$n) = parse_GPS_grid('TQ 23451 09893'); # spaces optional, can give list as well
-  ($e,$n) = parse_landranger_grid($sheet, $gre, $grn); # gre/grn must be 3 or 5 digits long
-  ($e,$n) = parse_landranger_grid($sheet); # this gives you the SW corner of the sheet
-
-  # some convenience routines that bundle these up for you
-  map2ll();
-  map2grid();
-
-  # set parameters
-  set_ellipsoid(6377563.396,6356256.91);                 # not needed for UK use
-  set_projection(49, -2, 400000, -100000, 0.9996012717); # not needed for UK use
-
-
-=head1 DESCRIPTION
-
-This module provides a collection of routines to convert between longitude
-& latitude and map grid references, using the formulae given in the British
-Ordnance Survey's excellent information leaflet, referenced below in
-L<"Theory">.
-
-The module is implemented purely in Perl, and should run on any Perl platform.
-In this description `OS' means `the Ordnance Survey of Great Britain': the UK
-government agency that produces the standard maps of England, Wales, and
-Scotland.  Any mention of `sheets' or `maps' refers to one or more of the 204
-sheets in the 1:50,000 scale `Landranger' series of OS maps.
-
-=cut
-
-our ($a, $b, $e2, $n);            # ellipsoid constants
-our ($N0, $E0, $F0, $phi0, $lam0);# projection constants
 use Math::Trig qw(tan sec);
 use Carp;
 
@@ -71,9 +30,152 @@ use constant PI  => 4 * atan2 1, 1;
 use constant RAD => PI / 180;
 use constant DAR => 180 / PI;
 
-our $GSq_Pattern = qr /[GHJMNORST][A-Z]/i;
-our $GR_Pattern = qr /^($GSq_Pattern)\s?(\d{3})\D?(\d{3})$/;
-our $Long_GR_Pattern = qr /^($GSq_Pattern)\s?(\d{5})\D?(\d{5})$/;
+use constant WGS84_MAJOR_AXIS => 6378137.000;
+use constant WGS84_FLATTENING => 1 / 298.257223563;
+
+# set defaults for Britain
+our %ellipsoid_shapes = (
+    WGS84  => [ 6378137.0000, 6356752.31425 ],
+    ETRS89 => [ 6378137.0000, 6356752.31425 ],
+    ETRN89 => [ 6378137.0000, 6356752.31425 ],
+    GRS80  => [ 6378137.0000, 6356752.31425 ],
+    OSGB36 => [ 6377563.396,  6356256.910  ],
+);
+# yes the first four are all synonyms
+
+# constants for OSGB mercator projection
+use constant LAM0 => RAD * -2;  # lon of grid origin
+use constant PHI0 => RAD * 49;  # lat of grid origin
+use constant E0   =>  400000;   # Easting for origin
+use constant N0   => -100000;   # Northing for origin
+use constant F0   => 0.9996012717; # Convergence factor
+
+sub ll_to_grid {
+    return unless defined wantarray;
+
+    if (@_ < 2) {
+        croak "Bad call to ll_to_grid (less than two arguments supplied)\n";
+    }
+
+    my $lat   = shift;
+    my $lon   = shift;
+    my $shape = shift || 'OSGB36';
+
+    if ( !defined $ellipsoid_shapes{$shape} ) {
+        croak "Bad call to ll_to_grid (unknown shape: $shape)\n";
+    }
+
+    my ($a,$b) = @{$ellipsoid_shapes{$shape}};
+
+    my $e2 = ($a**2-$b**2)/$a**2;
+    my $n = ($a-$b)/($a+$b);
+
+    my $phi = RAD * $lat;
+    my $lam = RAD * $lon;
+
+    my $sp2  = sin($phi)**2;
+    my $nu   = $a * F0 * (1 - $e2 * $sp2 ) ** -0.5;
+    my $rho  = $a * F0 * (1 - $e2) * (1 - $e2 * $sp2 ) ** -1.5;
+    my $eta2 = $nu/$rho - 1;
+
+    my $M = _compute_M($phi, $b, $n);
+
+    my $cp = cos($phi); my $sp = sin($phi); my $tp = tan($phi);
+    my $tp2 = $tp*$tp ; my $tp4 = $tp2*$tp2 ;
+
+    my $I    = $M + N0;
+    my $II   = $nu/2  * $sp * $cp;
+    my $III  = $nu/24 * $sp * $cp**3 * (5-$tp2+9*$eta2);
+    my $IIIA = $nu/720* $sp * $cp**5 *(61-58*$tp2+$tp4);
+
+    my $IV   = $nu*$cp;
+    my $V    = $nu/6   * $cp**3 * ($nu/$rho-$tp2);
+    my $VI   = $nu/120 * $cp**5 * (5-18*$tp2+$tp4+14*$eta2-58*$tp2*$eta2);
+
+    my $l = $lam - LAM0;
+    my $north = $I  + $II*$l**2 + $III*$l**4 + $IIIA*$l**6;
+    my $east  = E0 + $IV*$l    +   $V*$l**3 +   $VI*$l**5;
+
+    # round to 3dp (mm)
+    ($east, $north) = map { sprintf "%.3f", $_ } ($east, $north);
+
+    return ($east,$north) if wantarray;
+    return format_grid_trad($east, $north);
+}
+
+sub grid_to_ll {
+
+    return unless defined wantarray;
+
+    if (@_ < 2) {
+        croak "Bad call to grid_to_ll (less than two arguments supplied)\n";
+    }
+
+    my $E     = shift;
+    my $N     = shift;
+    my $shape = shift || 'OSGB36';
+
+    if ( !defined $ellipsoid_shapes{$shape} ) {
+        croak "Bad call to grid_to_ll (unknown shape: $shape)\n";
+    }
+    my ($a,$b) = @{$ellipsoid_shapes{$shape}};
+
+    my $e2 = ($a**2-$b**2)/$a**2;
+    my $n = ($a-$b)/($a+$b);
+
+    my $dN = $N - N0;
+
+    my ($phi, $lam);
+    $phi = PHI0 + $dN/($a * F0);
+
+    my $M = _compute_M($phi, $b, $n);
+    while ($dN-$M >= 0.001) {
+       $phi = $phi + ($dN-$M)/($a * F0);
+       $M = _compute_M($phi, $b, $n);
+    }
+
+    my $sp2  = sin($phi)**2;
+    my $nu   = $a * F0 *             (1 - $e2 * $sp2 ) ** -0.5;
+    my $rho  = $a * F0 * (1 - $e2) * (1 - $e2 * $sp2 ) ** -1.5;
+    my $eta2 = $nu/$rho - 1;
+
+    my $tp = tan($phi); my $tp2 = $tp*$tp ; my $tp4 = $tp2*$tp2 ;
+
+    my $VII  = $tp /   (2*$rho*$nu);
+    my $VIII = $tp /  (24*$rho*$nu**3) *  (5 +  3*$tp2 + $eta2 - 9*$tp2*$eta2);
+    my $IX   = $tp / (720*$rho*$nu**5) * (61 + 90*$tp2 + 45*$tp4);
+
+    my $sp = sec($phi); my $tp6 = $tp4*$tp2 ;
+
+    my $X    = $sp/$nu;
+    my $XI   = $sp/(   6*$nu**3)*($nu/$rho + 2*$tp2);
+    my $XII  = $sp/( 120*$nu**5)*(      5 + 28*$tp2 +   24*$tp4);
+    my $XIIA = $sp/(5040*$nu**7)*(    61 + 662*$tp2 + 1320*$tp4 + 720*$tp6);
+
+    my $e = $E - E0;
+
+    $phi = $phi         - $VII*$e**2 + $VIII*$e**4 -   $IX*$e**6;
+    $lam = LAM0 + $X*$e -  $XI*$e**3 +  $XII*$e**5 - $XIIA*$e**7;
+
+    $phi *= DAR;
+    $lam *= DAR;
+
+    return ($phi, $lam) if wantarray;
+    return format_ll_ISO($phi,$lam);
+}
+
+sub _compute_M {
+    my ($phi, $b, $n) = @_;
+    my $p_plus  = $phi + PHI0;
+    my $p_minus = $phi - PHI0;
+    return $b * F0 * (
+           (1 + $n * (1 + 5/4*$n*(1 + $n)))*$p_minus
+         - 3*$n*(1+$n*(1+7/8*$n))  * sin(  $p_minus) * cos(  $p_plus)
+         + (15/8*$n * ($n*(1+$n))) * sin(2*$p_minus) * cos(2*$p_plus)
+         - 35/24*$n**3             * sin(3*$p_minus) * cos(3*$p_plus)
+           );
+}
+
 
 our @Grid = ( [ qw( V W X Y Z ) ],
               [ qw( Q R S T U ) ],
@@ -337,167 +439,6 @@ our %LR = (
 204 => [ 172000 ,  14000 ] ,
 );
 
-
-=head1 FUNCTIONS
-
-The following functions can be exported from the C<Geo::Coordinates::OSGB>
-module:
-
-    ll2grid
-    grid2ll
-
-    format_grid_trad
-    format_grid_GPS
-    format_grid_landranger
-
-    parse_trad_grid
-    parse_GPS_grid
-    parse_landranger_grid
-
-    map2ll
-    map2grid
-
-    set_ellipsoid
-    set_projection
-
-None is exported by default.
-
-=cut
-
-@EXPORT = qw();
-@EXPORT_OK = qw(
-    ll2grid
-    grid2ll
-    set_ellipsoid
-    set_projection
-    format_grid_trad
-    format_grid_GPS
-    format_grid_landranger
-    parse_trad_grid
-    parse_GPS_grid
-    parse_landranger_grid
-    map2ll
-    map2grid
-);
-
-=pod
-
-This code is fine tuned to the British national grid system.  You can use it
-elsewhere but you will need to adapt it.  This is explained in some detail in
-the L<"Examples"> section below.
-
-The default values for ellipsoid and projection are suitable for mapping
-between GPS longitude and latitude data and the UK National Grid.
-
-=cut
-
-# set defaults for Britain
-
-set_ellipsoid(6377563.396,6356256.91);
-set_projection(49, -2, 400000, -100000, 0.9996012717);
-
-=over 4
-
-=item ll2grid(lat,lon)
-
-When called in a void context, or with no arguments C<ll2grid> does nothing.
-When called in a list context, C<ll2grid> returns two numbers that represent
-the easting and the northing corresponding to the latitude and longitude
-supplied.
-
-The parameters can be supplied as real numbers representing degrees or in ISO
-`degrees, minutes, and seconds' form.  That is 'C<sdd[mm[ss]]>' for I<lat>
-and 'C<sddd[mm[ss]]>' for I<long>.  The magnitude of the arguments is used to
-infer which form is being used.  Note the leading C<s> is the sign +
-(North,East) or - (South,West).  If you use the ISO format be sure to 'quote'
-the arguments, otherwise Perl will think that they are numbers, and strip
-leading 0s and + signs which may give you unexpected results.  For example:
-
-    my ($e,$n) = ll2grid('+5120','-00025');
-
-If you have trouble remembering the order of the arguments, note that
-latitude comes before longitude in the alphabet too.
-
-The easting and northing will be returned as a whole number of metres from
-the point of origin defined by the projection you have set.  In the case of
-the Britain this is a point a little way to the south-west of the Scilly
-Isles.  If you want the grid presented in a more traditional format you
-should pass the results to one of the grid formatting routines, which are
-described below.
-
-If you call C<ll2grid> in a scalar context, it will automatically call C<format_grid_trad>.
-For example:
-
-    my $gridref = ll2grid('+5120','-00025');
-
-In this case the string returned represents the `full national
-grid reference' with two letters and two sets of three numbers, like this
-`TQ 102 606'.  If you want to remove the spaces, just apply C<s/\s//g> to it.
-
-To force it to call one of the other grid formatting routines, try one of these:
-
-    $gridref = ll2grid('+5120','-00025','Trad');
-    $gridref = ll2grid('+5120','-00025','GPS');
-    $gridref = ll2grid('+5120','-00025','Landranger');
-
-=cut
-
-sub ll2grid {
-    return unless defined wantarray;
-    return unless @_ > 1;
-
-    my ($lat, $lon, $form, undef) = (@_, 'TRAD');
-
-    if    ($lat =~ /^([+-])(\d\d)(\d\d)(\d\d)$/ ) { $lat = $1.($2+$3/60+$4/3600) }
-    elsif ($lat =~ /^([+-])(\d\d)(\d\d)$/ )       { $lat = $1.($2+$3/60) }
-    if    ($lon =~ /^([+-])(\d\d\d)(\d\d)(\d\d)$/){ $lon = $1.($2+$3/60+$4/3600) }
-    elsif ($lon =~ /^([+-])(\d\d\d)(\d\d)$/ )     { $lon = $1.($2+$3/60) }
-
-    my $phi = RAD * $lat;
-    my $lam = RAD * $lon;
-
-    my $sp2  = sin($phi)**2;
-    my $nu   = $a * $F0 * (1 - $e2 * $sp2 ) ** -0.5;
-    my $rho  = $a * $F0 * (1 - $e2) * (1 - $e2 * $sp2 ) ** -1.5;
-    my $eta2 = $nu/$rho - 1;
-
-    my $M = _compute_M($phi);
-
-    my $cp = cos($phi); my $sp = sin($phi); my $tp = tan($phi);
-    my $tp2 = $tp*$tp ; my $tp4 = $tp2*$tp2 ;
-
-    my $I    = $M+$N0;
-    my $II   = $nu/2  * $sp * $cp;
-    my $III  = $nu/24 * $sp * $cp**3 * (5-$tp2+9*$eta2);
-    my $IIIA = $nu/720* $sp * $cp**5 *(61-58*$tp2+$tp4);
-
-    my $IV   = $nu*$cp;
-    my $V    = $nu/6   * $cp**3 * ($nu/$rho-$tp2);
-    my $VI   = $nu/120 * $cp**5 * (5-18*$tp2+$tp4+14*$eta2-58*$tp2*$eta2);
-
-    my $l = $lam-$lam0;
-    my $north = $I  + $II*$l**2 + $III*$l**4 + $IIIA*$l**6;
-    my $east  = $E0 + $IV*$l    +   $V*$l**3 +   $VI*$l**5;
-
-    $east  = int($east+0.2);  # round to nearest metre, mainly rounding down
-    $north = int($north+0.2);
-
-    return ($east,$north) if wantarray;
-    return format_grid_GPS($east,$north)        if $form =~ /gps/io;
-    return format_grid_landranger($east,$north) if $form =~ /landranger/io;
-    return format_grid_trad($east,$north);
-
-}
-
-=item format_grid_trad(e,n)
-
-Formats an (easting, northing) pair into traditional `full national grid
-reference' with two letters and two sets of three numbers, like this `TQ 102
-606'.  If you want to remove the spaces, just apply C<s/\s//g> to it.
-If you want the individual components call it in a list context.
-
-=cut
-
 sub format_grid_trad {
     use integer;
     my ($sq, $e, $n) = format_grid_GPS(@_);
@@ -506,66 +447,28 @@ sub format_grid_trad {
     return sprintf "%s %03d %03d", $sq, $e, $n;
 }
 
-=item format_grid_GPS(e,n)
-
-Users who have bought a GPS receiver may initially have been puzzled by the
-unfamiliar format used to present coordinates in the British national grid format.
-On my Garmin Legend C it shows this sort of thing in the display.
-
-    TQ 23918
-   bng 00972
-
-and in the track logs the references look like this
-
-    TQ 23918 00972
-
-These are just the same as the references described on the OS sheets, except
-that the units are metres rather than hectometres, so you get five digits in
-each of the easting and northings instead of three.  C<format_grid_GPS>
-returns a string representing this format, or a list of the square, the
-truncated easting, and the truncated northing if you call it in a list
-context.
-
-Note that, at least until WAAS is working in Europe, the results from your GPS are
-unlikely to be more accurate than plus or minus 10m even with perfect reception.
-
-=cut
-
-
 sub format_grid_GPS {
-    use integer;
     my $e = shift;
     my $n = shift;
-    my $sq = sprintf "%s%s", _letter(2+$e/BIG_SQUARE,1+$n/BIG_SQUARE),
-                             _letter(( $e % BIG_SQUARE )/SQUARE, ( $n % BIG_SQUARE )/SQUARE );
-    ($e,$n) = ($e % SQUARE, $n % SQUARE);
+
+    croak "Easting must not be negative\n" if $e<0;
+    croak "Northing must not be negative\n" if $n<0;
+
+    # round to nearest metre
+    ($e,$n) = map { $_+0.5 } ($e, $n);
+    my $sq;
+
+    {
+        use integer;
+        $sq = sprintf "%s%s", _letter( 2 + $e/BIG_SQUARE         , 1+$n/BIG_SQUARE        ),
+                              _letter(($e % BIG_SQUARE ) / SQUARE, ( $n % BIG_SQUARE )/SQUARE );
+
+        ($e,$n) = map { $_ % SQUARE } ($e, $n);
+    }
+
     return ($sq, $e, $n) if wantarray;
     return sprintf "%s %05d %05d", $sq, $e, $n;
 }
-
-
-
-=item format_grid_landranger(e,n)
-
-This does the same as C<format_grid_trad>, but it appends the number of the
-relevant OS Landranger 1:50,000 scale map to the traditional grid reference.
-Note that there may be several or no sheets returned.  This is because many
-(most) of the Landranger sheets overlap, and many other valid grid references are
-not on any of the sheets (because they are in the sea or a remote island.
-This module does not cope with the detached insets on some sheets (yet).
-
-In a list context you will get back a list like this: (square, easting, northing,
-sheet) or (square, easting, northing, sheet1, sheet2) etc.  There are a few places
-where three sheets overlap, and one corner of Herefordshire which appears
-on four maps (sheets 137, 138, 148, and 149).  If the GR is not on any sheet,
-then the list of sheets will be empty.
-
-In a scalar context you will get back the same information in a helpful
-string form like this "NN 241 738 on OS Sheet 44".  Note that the easting and
-northing will have been truncated to the normal truncated `hectometre' three
-digit form.
-
-=cut
 
 sub format_grid_landranger {
     use integer;
@@ -599,14 +502,19 @@ sub _letter {
     return $Grid[$y][$x];
 }
 
-=item parse_trad_grid(grid_ref)
+our $GSq_Pattern     = qr /[GHJMNORST][A-Z]/i;
+our $LR_Pattern      = qr /^(\d{1,3})\D+(\d{3})\D?(\d{3})$/;
+our $GR_Pattern      = qr /^($GSq_Pattern)\s?(\d{3})\D?(\d{3})$/;
+our $Long_GR_Pattern = qr /^($GSq_Pattern)\s?(\d{5})\D?(\d{5})$/;
 
-Turns a traditional grid reference into a full easting and northing pair in
-metres from the point of origin.  The I<grid_ref> can be a string like
-`TQ203604' or `SW 452 004', or a list like this C<('TV', '435904')> or a list
-like this C<('NN', '345', '208')>.
-
-=cut
+sub parse_grid {
+    my $s = shift;
+    return parse_trad_grid($s) if $s =~ $GR_Pattern;
+    return parse_GPS_grid($s)  if $s =~ $Long_GR_Pattern;
+    return parse_landranger_grid($1, $2, $3) if $s =~ $LR_Pattern;
+    confess "$s <-- this does not match my grid ref patterns\n";
+    return
+}
 
 sub parse_trad_grid {
     my ($letters, $e, $n);
@@ -623,14 +531,6 @@ sub parse_trad_grid {
 
     return _parse_grid($letters, $e*100, $n*100)
 }
-
-
-=item parse_GPS_grid(grid_ref)
-
-Does the same as C<parse_trad_grid> but is looking for five digit numbers
-like `SW 45202 00421', or a list like this C<('NN', '34592', '20804')>.
-
-=cut
 
 sub parse_GPS_grid {
     my ($letters, $e, $n);
@@ -652,6 +552,7 @@ sub _parse_grid {
     return unless defined wantarray;
 
     my ($letters, $e, $n) = @_;
+    $letters = uc($letters);
 
     my $c = substr($letters,0,1);
     $e += $Big_off{$c}->{E}*BIG_SQUARE;
@@ -664,24 +565,6 @@ sub _parse_grid {
     return ($e,$n);
 }
 
-=item parse_landranger_grid($sheet, $e, $n)
-
-This converts an OS Landranger sheet number and a local grid reference
-into a full easting and northing pair in metres from the point of origin.
-
-The OS Landranger sheet number should be between 1 and 204 inclusive (but
-I may extend this when I support insets).  You can supply (e,n) as 3-digit
-hectometre numbers or 5-digit metre numbers.  In either case if you supply
-any leading zeros you should 'quote' the numbers to stop Perl thinking that
-they are octal constants.
-
-This module will croak at you if you give it an undefined sheet number, or
-if the grid reference that you supply does not exist on the sheet.
-
-In order to get just the coordinates of the SW corner of the sheet, just call
-it with the sheet number.
-
-=cut
 
 sub _get_en {
     my $e = shift;
@@ -723,183 +606,470 @@ sub parse_landranger_grid {
 
 }
 
-=item grid2ll(e,n) or grid2ll(grid_ref)
+sub map_to_grid {
+    return format_grid_trad(parse_landranger_grid(@_));
+}
 
-When called in list context C<grid2ll> returns a pair of numbers
+sub parse_ll {
+    my $lat = shift;
+    my $lon = shift;
+
+    if    ($lat =~ /^([+-])(\d\d)(\d\d)(\d\d)$/ ) { $lat = $1.($2+$3/60+$4/3600) }
+    elsif ($lat =~ /^([+-])(\d\d)(\d\d)$/ )       { $lat = $1.($2+$3/60) }
+
+    if    ($lon =~ /^([+-])(\d\d\d)(\d\d)(\d\d)$/){ $lon = $1.($2+$3/60+$4/3600) }
+    elsif ($lon =~ /^([+-])(\d\d\d)(\d\d)$/ )     { $lon = $1.($2+$3/60) }
+
+}
+
+sub format_ll_dms {
+    my $lat = shift;
+    my $lon = shift;
+
+    my $out = '';
+    my ($formatted_lat, $is_north) = _dms($lat);
+    $out = $formatted_lat . ' ' . ($is_north ? 'N' : 'S');
+
+    $out .= ' ';
+
+    my ($formatted_lon, $is_east) = _dms($lon);
+    $out .= $formatted_lon . ' ' . ($is_east ? 'E' : 'W');
+
+    return $out;
+
+}
+
+sub _dms {
+    my $dd = shift;
+    my $is_positive = ($dd>=0);
+
+    $dd = abs($dd);
+    my $d = int($dd);     $dd = $dd-$d;
+    my $m = int($dd*60);  $dd = $dd-$m/60;
+    my $s = $dd*3600;
+    return sprintf("%d°%02d'%02d", $d, $m, $s), $is_positive;
+}
+
+sub format_ll_ISO {
+    return sprintf "%+05d%+06d", _dm($_[0]), _dm($_[1])
+}
+
+sub _dm {
+    my $r = shift;
+    return 0 unless $r;
+
+    my $sign = $r/abs($r); $r=abs($r);
+    my $deg = int($r);
+    my $min = int(0.5+60*($r-$deg));
+    if ( $min == 60) {
+        $deg++;
+        $min=0;
+    }
+    return $sign*($deg*100+$min);  # beware that -1 * 0 = +0 in Perl!
+}
+
+my %datums = (
+
+    "OSGB36" => [ 573.604, 0.119600236/10000, 375, -111, 431 ],
+
+    );
+
+sub shift_ll_from_WGS84 {
+
+    my ($lat, $lon, $elevation) = (@_, 0);
+
+    my $target_da = -573.604;
+    my $target_df = -0.119600236/10000;
+    my $target_dx = -375;
+    my $target_dy = +111;
+    my $target_dz = -431;
+
+    my $reference_major_axis = WGS84_MAJOR_AXIS;
+    my $reference_flattening = WGS84_FLATTENING;
+
+    return _transform($lat, $lon, $elevation,
+                      $reference_major_axis, $reference_flattening,
+                      $target_da, $target_df,
+                      $target_dx, $target_dy, $target_dz);
+}
+
+sub shift_ll_into_WGS84 {
+    my ($lat, $lon, $elevation) = (@_, 0);
+
+    my $target_da = +573.604;
+    my $target_df = +0.119600236/10000;
+    my $target_dx = +375;
+    my $target_dy = -111;
+    my $target_dz = +431;
+
+    my $reference_major_axis = WGS84_MAJOR_AXIS - $target_da;
+    my $reference_flattening = WGS84_FLATTENING - $target_df;
+
+    return _transform($lat, $lon, $elevation,
+                      $reference_major_axis, $reference_flattening,
+                      $target_da, $target_df,
+                      $target_dx, $target_dy, $target_dz);
+}
+
+sub _transform {
+    return unless defined wantarray;
+
+    my $lat = shift;
+    my $lon = shift;
+    my $elev = shift;
+
+    my $from_a = shift;
+    my $from_f = shift;
+
+    my $da = shift;
+    my $df = shift;
+    my $dx = shift;
+    my $dy = shift;
+    my $dz = shift;
+
+    my $sin_lat = sin( $lat * RAD );
+    my $cos_lat = cos( $lat * RAD );
+    my $sin_lon = sin( $lon * RAD );
+    my $cos_lon = cos( $lon * RAD );
+
+    my $b_a      = 1 - $from_f;
+    my $e_sq     = $from_f*(2-$from_f);
+    my $ecc      = 1 - $e_sq*$sin_lat*$sin_lat;
+
+    my $Rn       = $from_a / sqrt($ecc);
+    my $Rm       = $from_a * (1-$e_sq) / ($ecc*sqrt($ecc));
+
+    my $d_lat = ( - $dx*$sin_lat*$cos_lon
+                  - $dy*$sin_lat*$sin_lon
+                  + $dz*$cos_lat
+                  + $da*($Rn*$e_sq*$sin_lat*$cos_lat)/$from_a
+                  + $df*($Rm/$b_a + $Rn*$b_a)*$sin_lat*$cos_lat
+                ) / ($Rm + $elev);
+
+
+    my $d_lon = ( - $dx*$sin_lon
+                  + $dy*$cos_lon
+                ) / (($Rn+$elev)*$cos_lat);
+
+    my $d_elev = + $dx*$cos_lat*$cos_lon
+                 + $dy*$cos_lat*$sin_lon
+                 + $dz*$sin_lat
+                 - $da*$from_a/$Rn
+                 + $df*$b_a*$Rn*$sin_lat*$sin_lat;
+
+    my ($new_lat, $new_lon, $new_elev) = (
+         $lat + $d_lat * DAR,
+         $lon + $d_lon * DAR,
+         $elev + $d_elev,
+       );
+
+    return ($new_lat, $new_lon, $new_elev) if wantarray;
+    return sprintf "%s, (%s m)", format_ll_dms($new_lat, $new_lon), $new_elev;
+
+}
+
+1;
+__END__
+
+=head1 NAME
+
+Geo::Coordinates::OSGB --- Convert Coordinates from Lat/Long to UK Grid
+
+A UK-specific implementation of co-ordinate conversion, following formulae
+from the Ordnance Survey of Great Britain (hence the name), from the OSGB
+grid to latitude and longitude.
+
+Used on their own, these modules will allow you convert accurately between a
+grid reference and lat/lon coordinates based on the OSGB Airy 1830 geoid
+model (the traditional model used for maps in the UK for the last 180 years)
+and last amended by the OS in 1936.  This model is sometimes referred to as OSGB36.
+
+OSGB36 fits the British Isles very well, but is rather different from the
+WGS84 model that has rapidly become the de facto universal standard model
+thanks to the popularity of GPS devices and maps on the Internet.  So, if you
+are trying to translate from a OSGB grid reference to lat/lon coordinates
+that can be used in in Google Earth, Wikipedia, or some other Internet based
+tool, you will need to do two transformations.  First translate your grid ref
+into OSGB lat/lon, then nudge the result into WGS84.  Routines are provided
+to do both of these operations, but they are only approximate.  The inaccuracy
+of the approximation varies according to where you are in the country but may
+be as much as several metres in some areas.
+
+To get really accurate results you need to combine this module with its
+companion L<Geo::Coordinates::OSTN02> which implements the transformation
+(known as OSTN02) that now defines the relationship between GPS survey data
+based on WGS84 and the British National Grid.  Using this module you should
+be able to get results that are accurate to within a few centimetres, but it
+is rather slower and more of a fiddle to use.
+
+Version: 2.00
+
+=head1 SYNOPSIS
+
+  use Geo::Coordinates::OSGB qw(ll_to_grid grid_to_ll);
+
+  # basic conversion routines
+  ($easting,$northing) = ll_to_grid($lat,$lon);
+  ($lat,$long) = grid_to_ll($easting,$northing);
+
+  # format full easting and northing into traditional formats
+  $trad_gr       = format_grid_trad($easting,$northing);  # TQ 234 098
+  $GPS_gr        = format_grid_GPS($easting,$northing);   # TQ 23451 09893
+  $landranger_gr = format_grid_landranger($easting, $northing) # 234098 on Sheet 176
+
+  # you can call these in list context to get the individual parts
+  # add "=~ s/\s//g" to the result to remove the spaces
+
+  # and there are corresponding parse routines to convert from these formats to full e,n
+  ($e,$n) = parse_trad_grid('TQ 234 098'); # spaces optional, can give list as well
+  ($e,$n) = parse_GPS_grid('TQ 23451 09893'); # spaces optional, can give list as well
+  ($e,$n) = parse_landranger_grid($sheet, $gre, $grn); # gre/grn must be 3 or 5 digits long
+  ($e,$n) = parse_landranger_grid($sheet); # this gives you the SW corner of the sheet
+
+  # latitude and longitude are returned according to the OSGB36 (as printed on OS maps)
+  # if you want them to work in Google Earth or some other tool that uses WGS84 then
+  # you need to adjust the results
+  ($lat, $long, $elevation) = shift_ll_into_WGS84($lat, $long, $elevation);
+
+
+
+=head1 DESCRIPTION
+
+This module provides a collection of routines to convert between longitude &
+latitude and map grid references, using the formulae given in the British
+Ordnance Survey's excellent information leaflet, referenced below in
+L<"Theory">.  There are some key concepts explained in that section that you
+need to know in order to use these modules successfully, so you are
+recommended to at least skim through it now.
+
+The module is implemented purely in Perl, and should run on any Perl platform.
+
+In this description `OS' means `the Ordnance Survey of Great Britain': the UK
+government agency that produces the standard maps of England, Wales, and
+Scotland.  Any mention of `sheets' or `maps' refers to one or more of the 204
+sheets in the 1:50,000 scale `Landranger' series of OS maps.
+
+=head1 FUNCTIONS
+
+The following functions can be exported from the C<Geo::Coordinates::OSGB>
+module:
+
+    ll_to_grid
+    grid_to_ll
+
+    parse_grid
+    parse_trad_grid
+    parse_GPS_grid
+    parse_landranger_grid
+    format_grid_trad
+    format_grid_GPS
+    format_grid_landranger
+
+    parse_ll
+    format_ll_dms
+    format_ll_ISO
+
+    shift_ll_into_WGS84
+    shift_ll_from_WGS84
+
+None of these is exported by default.
+
+This code is fine tuned to the British national grid system.  You could use it
+elsewhere but you will need to adapt it.  Some starting points for doing this
+are explained in detail in the L<"Examples"> section below.
+
+=over 4
+
+=item ll_to_grid(lat,lon)
+
+When called in a void context, or with no arguments C<ll_to_grid> does nothing.
+When called in a list context, C<ll_to_grid> returns two numbers that represent
+the easting and the northing corresponding to the latitude and longitude
+supplied.
+
+The parameters can be supplied as real numbers representing degrees or in ISO
+`degrees, minutes, and seconds' form.  That is 'C<sdd[mm[ss]]>' for I<lat>
+and 'C<sddd[mm[ss]]>' for I<long>.  The magnitude of the arguments is used to
+infer which form is being used.  Note the leading C<s> is the sign +
+(North,East) or - (South,West).  If you use the ISO format be sure to 'quote'
+the arguments, otherwise Perl will think that they are numbers, and strip
+leading 0s and + signs which may give you unexpected results.  For example:
+
+    my ($e,$n) = ll_to_grid('+5120','-00025');
+
+If you have trouble remembering the order of the arguments, note that
+latitude comes before longitude in the alphabet too.
+
+The easting and northing will be returned as a whole number of metres from
+the point of origin of the British Grid (which is a point a little way to the
+south-west of the Scilly Isles).  If you want the grid presented in a more
+traditional format you should pass the results to one of the grid formatting
+routines, which are described below.
+
+If you call C<ll_to_grid> in a scalar context, it will automatically call
+C<format_grid_trad>.  For example:
+
+    my $gridref = ll_to_grid('+5120','-00025');
+
+In this case the string returned represents the `full national
+grid reference' with two letters and two sets of three numbers, like this
+`TQ 102 606'.  If you want to remove the spaces, just apply C<s/\s//g> to it.
+To get the grid reference formatted differently, just wrap it in the appropriate
+format routine, like this:
+
+    $gridref = format_grid_GPS(ll_to_grid('+5120','-00025'));
+    $gridref = format_grid_landranger(ll_to_grid('+5120','-00025'));
+
+It is not needed for any normal work, but C<ll_to_grid()> also takes an
+optional third argument that sets the ellipsoid model to use.  This normally
+defaults to "OSGB36", the name of the normal model for working with British
+maps.  If you are working with the highly accurate OSTN02 conversions
+supplied in the companion module in this distribution, then you will need to
+produce pseudo-grid references as input to those routines.  For these
+purposes you should call C<ll_to_grid()> like this:
+
+    my $pseudo_gridref = ll_to_grid('+5120','-00025', 'WGS84');
+
+and then transform this to a real grid reference using C<ETRS89_to_OSGB36()>
+from the companion module.
+
+=item format_grid_trad(e,n)
+
+Formats an (easting, northing) pair into traditional `full national grid
+reference' with two letters and two sets of three numbers, like this `TQ 102
+606'.  If you want to remove the spaces, just apply C<s/\s//g> to it.
+If you want the individual components call it in a list context.
+
+
+=item format_grid_GPS(e,n)
+
+Users who have bought a GPS receiver may initially have been puzzled by the
+unfamiliar format used to present coordinates in the British national grid format.
+On my Garmin Legend C it shows this sort of thing in the display.
+
+    TQ 23918
+   bng 00972
+
+and in the track logs the references look like this
+
+    TQ 23918 00972
+
+These are just the same as the references described on the OS sheets, except
+that the units are metres rather than hectometres, so you get five digits in
+each of the easting and northings instead of three.  C<format_grid_GPS>
+returns a string representing this format, or a list of the square, the
+truncated easting, and the truncated northing if you call it in a list
+context.
+
+Note that, at least until WAAS is working in Europe, the results from your
+GPS are unlikely to be more accurate than plus or minus 5m even with perfect
+reception.  Most GPS devices can display the accuracy of the current fix you
+are getting, but you should be aware that all normal consumer-level GPS
+devices can only ever produce an approximation of an OS grid reference, no
+matter what level of accuracy they may display.  The reasons for this are
+discussed below in the section on L<Theory>.
+
+
+=item format_grid_landranger(e,n)
+
+This routine does the same as C<format_grid_trad>, but it appends the number
+of the relevant OS Landranger 1:50,000 scale map to the traditional grid
+reference.  Note that there may be several or no sheets returned.  This is
+because many (most) of the Landranger sheets overlap, and many other valid
+grid references are not on any of the sheets (because they are in the sea or
+a remote island.  This module does not cope with the detached insets on some
+sheets (yet).
+
+In a list context you will get back a list like this:  (square, easting,
+northing, sheet) or (square, easting, northing, sheet1, sheet2) etc.  There
+are a few places where three sheets overlap, and one corner of Herefordshire
+which appears on four maps (sheets 137, 138, 148, and 149).  If the GR is not
+on any sheet, then the list of sheets will be empty.
+
+In a scalar context you will get back the same information in a helpful
+string form like this "NN 241 738 on OS Sheet 44".  Note that the easting and
+northing will have been truncated to the normal truncated `hectometre' three
+digit form.
+
+
+=item parse_trad_grid(grid_ref)
+
+Turns a traditional grid reference into a full easting and northing pair in
+metres from the point of origin.  The I<grid_ref> can be a string like
+`TQ203604' or `SW 452 004', or a list like this C<('TV', '435904')> or a list
+like this C<('NN', '345', '208')>.
+
+
+=item parse_GPS_grid(grid_ref)
+
+Does the same as C<parse_trad_grid> but is looking for five digit numbers
+like `SW 45202 00421', or a list like this C<('NN', '34592', '20804')>.
+
+
+=item parse_landranger_grid($sheet, $e, $n)
+
+This converts an OS Landranger sheet number and a local grid reference
+into a full easting and northing pair in metres from the point of origin.
+
+The OS Landranger sheet number should be between 1 and 204 inclusive (but
+I may extend this when I support insets).  You can supply (e,n) as 3-digit
+hectometre numbers or 5-digit metre numbers.  In either case if you supply
+any leading zeros you should 'quote' the numbers to stop Perl thinking that
+they are octal constants.
+
+This module will croak at you if you give it an undefined sheet number, or
+if the grid reference that you supply does not exist on the sheet.
+
+In order to get just the coordinates of the SW corner of the sheet, just call
+it with the sheet number.  It is easy to work out the coordinates of the
+other corners, because all OS Landranger maps cover a 40km square (if you
+don't count insets or the occasional sheet that includes extra details
+outside the formal margin).
+
+=item parse_grid('string')
+
+Attempts to match a grid reference some form or other
+in the input string and will then call the appropriate grid
+parsing routine from those defined above.  In particular it will parse strings in the form
+'176-345210' meaning grid ref 345 210 on sheet 176, as well as 'TQ345210' and 'TQ 34500 21000' etc.
+
+=item grid_to_ll(e,n) or grid_to_ll(grid_ref)
+
+When called in list context C<grid_to_ll> returns a pair of numbers
 representing longitude and latitude coordinates, as real numbers.  Following
 convention, positive numbers are North and East, negative numbers are South
-and West.  The fractional parts of the results represent fractions of degrees.
+and West.  The fractional parts of the results represent fractions of
+degrees.
 
 When called in scalar context it returns a string in ISO longitude and latitude
 form, such as '+5025-00403' with the result rounded to the nearest minute (the
 formulae are not much more accurate than this).  In a void context it does
 nothing.
 
-The arguments can be either an (easting, northing) pair of integers
-representing the absolute grid reference in metres from the point of origin,
-or a single string that represents a full grid reference in traditional
-hectometre form, such as 'NH868943' or 'NH 868 943'.
+The arguments must be an (easting, northing) pair
+representing the absolute grid reference in metres from the point of origin.
+You can get these from a grid reference string by calling C<parse_grid()> first.
 
-To force it to read GPS format grid references you can try C<grid2ll(grid_ref,'GPS')>.
-This should then recognize strings like 'NH 87612 27623'.
-
-=cut
-
-
-sub grid2ll {
-
-    return unless defined wantarray;
-
-    my ($E,$N) = @_;
-    ($E,$N) = parse_trad_grid($E) unless defined $N;
-    ($E,$N) = parse_trad_grid($E) if $N =~ /TRAD/oi;
-    ($E,$N) = parse_GPS_grid($E) if $N =~ /GPS/oi;
-
-    my $dN = $N-$N0;
-
-    my $phi = $phi0 + $dN/($a*$F0);
-    my $M = _compute_M($phi);
-
-    while ($dN-$M >= 0.001) {
-       $phi = $phi + ($dN-$M)/($a*$F0);
-       $M = _compute_M($phi);
-    }
-
-    my $sp2  = sin($phi)**2;
-    my $nu   = $a * $F0 * (1 - $e2 * $sp2 ) ** -0.5;
-    my $rho  = $a * $F0 * (1 - $e2) * (1 - $e2 * $sp2 ) ** -1.5;
-    my $eta2 = $nu/$rho - 1;
-
-    my $tp = tan($phi); my $tp2 = $tp*$tp ; my $tp4 = $tp2*$tp2 ;
-
-    my $VII  = $tp /   (2*$rho*$nu);
-    my $VIII = $tp /  (24*$rho*$nu**3) *  (5 +  3*$tp2 + $eta2 - 9*$tp2*$eta2);
-    my $IX   = $tp / (720*$rho*$nu**5) * (61 + 90*$tp2 + 45*$tp4);
-
-    my $sp = sec($phi); my $tp6 = $tp4*$tp2 ;
-
-    my $X    = $sp/$nu;
-    my $XI   = $sp/(   6*$nu**3)*($nu/$rho + 2*$tp2);
-    my $XII  = $sp/( 120*$nu**5)*(      5 + 28*$tp2 +   24*$tp4);
-    my $XIIA = $sp/(5040*$nu**7)*(    61 + 662*$tp2 + 1320*$tp4 + 720*$tp6);
-
-    my $e = $E-$E0;
-       $phi = $phi  - $VII*$e**2 + $VIII*$e**4 -  $IX*$e**6;
-    my $lam = $lam0 +   $X*$e    -   $XI*$e**3 + $XII*$e**5 - $XIIA*$e**7;
-
-    return ($phi * DAR, $lam * DAR) if wantarray;
-
-    return _iso_form_LL($phi * DAR, $lam * DAR);
-}
-
-
-=item map2grid()
-
-Shorthand for C<format_grid_trad(parse_landranger_grid())>.
-
-=item map2ll()
-
-Shorthand for C<grid2ll(parse_landranger_grid())>.
-
-=cut
-
-
-sub map2grid {
-    my $gr = format_grid_trad(&parse_landranger_grid);
-    $gr =~ s/\s//g;
-    return $gr
-}
-
-sub map2ll { return grid2ll(&parse_landranger_grid) }
-
-=item set_ellipsoid(a,b)
-
-Defines the ellipsoid used to interpret the longitude and latitude values.
-The arguments I<a> and I<b> are the lengths (in metres) of the semi-major
-axes of the ellipsoid used to represent the earth's surface.  Values used
-in the UK are given in Annex A of the paper referenced below in L<"Theory">.
-
-You should call set_ellipsoid() before doing anything else, unless you are
-converting data for the UK National Grid.
-It will default to the values for the `Airy 1830' ellipsoid that is used
-with the UK National Grid.
-
-=cut
-
-
-sub set_ellipsoid {
-    $a = shift;
-    $b = shift;
-    $e2 = ($a**2-$b**2)/$a**2;
-    $n = ($a-$b)/($a+$b);
-}
-
-
-=item set_projection(lat,long,E,N,F)
-
-Defines the projection used to interpret the grid references.
-The projection is a `Transverse Mercator projection'.  The first two
-arguments define the longitude and latitude of the true origin of the
-grid to be used, and the second two are the grid coordinates of this
-position.  Note the order that they are given.  Latitude then longitude,
-followed by easting, then northing.  This may seem illogical but it does
-conform to normal practice.
-
-The fifth argument is the scale factor on the central meridian
-of the grid area.  See the paper referenced below in L<"Theory"> for
-a table of values suitable for the UK and a full explanation of the
-theory.
-
-You don't need to call this if you just want to use the normal OS grid.
+An optional third argument defines the geoid model to use just as it does for
+C<ll_to_grid()>.  This is only necessary is you are working with the
+pseudo-grid references produced by the OSTN02 routines.  See L<Theory> for
+more discussion.
 
 =back
-
-=cut
-
-
-sub set_projection {
-    $phi0 = RAD * shift;
-    $lam0 = RAD * shift;
-    $E0   = shift;
-    $N0   = shift;
-    $F0   = shift;
-}
-
-
-sub _iso_form_LL { sprintf "%+05d%+06d", _dm($_[0]), _dm($_[1]) }
-
-sub _dm {
-    my $r = shift;
-    return (0,0) unless $r;
-    my $sign = $r/abs($r); $r=abs($r);
-    my $deg = int($r);
-    my $min = int(0.5+60*($r-$deg));
-    return $sign*($deg*100+$min);  # beware that -1 * 0 = +0 in Perl!
-}
-
-sub _compute_M {
-    my $phi = shift;
-    return  $b * $F0 * ((1 + $n * (1 + 5/4*$n*(1 + $n)))*($phi-$phi0)
-         - (3*$n * ( 1 + $n * (1 + 7/8*$n))*sin($phi-$phi0)*cos($phi+$phi0))
-         + (15/8*$n * ($n*(1+$n)))*sin(2*($phi-$phi0))*cos(2*($phi+$phi0))
-         - 35/24*$n**3*sin(3*($phi-$phi0))*cos(3*($phi+$phi0)));
-}
-
-
-1;
-__END__
 
 =head1 THEORY
 
 The algorithms and theory for these conversion routines are all from
 I<A Guide to Coordinate Systems in Great Britain>
 published by the Ordnance Survey, April 1999 and available at
-http://www.gps.gov.uk/info.asp
+http://www.ordnancesurvey.co.uk/oswebsite/gps/information/index.html
 
 You may also like to read some of the other introductory material there.
 Should you be hoping to adapt this code to your own custom Mercator
 projection, you will find the paper called I<Surveying with the
 National GPS Network>, especially useful.
+
+=head2 The British National Grid
 
 The true point of origin of the British Grid is the point 49N 2W (near the Channel
 Islands).  If you look at the appropriate OS maps you will notice that the 2W
@@ -949,18 +1119,114 @@ it could extend much further in each direction.  Note that it has the neat
 feature that N and S are directly above each other, so that most Sx squares
 are in the south and most Nx squares are in the north.
 
+=head2 Geoid models
+
+This section explains the fundamental problems of mapping a spherical earth
+onto a flat piece of paper (or computer screen).  A basic understanding of
+this material will help you use these routines more effectively.  It will
+also provide you with a good store of ammunition if you ever get into an
+argument with someone from the Flat Earth Society.
+
+It is a direct consequence of Newton's law of universal gravitation (and in
+particular the bit that states that the gravitational attraction between two
+objects varies inversely as the square of the distance between them) that all
+planets are roughly spherical.  (If they were any other shape gravity would
+tend to pull them into a sphere).  Most useful surfaces for displaying maps
+(such as pieces of paper or screens) on the other hand are flat.  There is
+therefore a fundamental problem in making any maps of the earth that its
+curved surface being mapped must be distorted at least slightly in order to
+get it to fit onto the flat map.
+
+This module sets out to solve the corresponding problem of converting
+latitude and longitude coordinates (designed for a spherical surface) to and
+from a rectangular grid (for a flat surface).  This projection is in itself
+is a fairly lengthy bit of maths, but what makes it complicated is that the
+earth is not quite a sphere.  Because our planet is also spinning about its
+axis, it tends to bulge out slightly in the middle, so it is more of an
+oblate spheroid than a sphere.  This makes the maths even longer, but the
+real problem is that the earth is not a regular oblate spheroid either, but
+an irregular lump that closely resembles an oblate spheroid and which is
+constantly (if slowly) being rearranged by plate tectonics.  So the best we
+can do is to pick an imaginary regular oblate spheroid that provides a good
+fit for the region of the earth that we are interested in mapping.  The
+British Ordnance Survey did this back in 1830 and have used it ever since
+(with revisions in 1936) as the base on which the National Grid for Great
+Britain is constructed.  You can also call an oblate spheroid an ellipsoid if
+you like.  The ellipsoid model that the OS defined is called OSGB36 for
+short, and it's parameters are built into these modules.
+
+The general idea is that you can establish your latitude and longitude by
+careful observation of the sun, the moon, the planets, or your GPS handset,
+and that you then do some clever maths to work out the corresponding grid
+reference, using a suitable idealised ellipsoid model of the earth (which is
+generally known as a "geoid").  These modules let you do the clever maths,
+and the model they use is the OSGB36 one.  Unfortunately, while this model
+suits Britain very well, it is less useful in the rest of the world, and
+there are many other models in use in other countries.  In the mid-1980s a
+new standard geoid model was defined to use with the fledgling global
+positioning system (GPS).  This model is known as WGS84, and is designed to
+be a compromise model that works equally well for all parts of the globe (or
+equally poorly depending on your point of view).  WGS84 has grown in
+importance as GPS systems have become consumer items and useful global
+mapping tools (such as Google Earth) have become freely available through the
+Internet.  Most latitude and longitude coordinates quoted on the Internet
+(for example in Wikipedia) are WGS84 coordinates.  All of this means that
+there is no such thing as an accurate set of coordinates for every unique
+spot on earth.  There are only approximations based on one or other of the
+accepted geoid models, however for most practical purposes good
+approximations are all you need.  In Europe the official definition of WGS84
+is sometime referred to as ETRS89.  For all practical purposes, you can
+regard ETRS89 as identical to WGS84.
+
+So, if you are working exclusively with British OS maps and you merely want
+to convert from the grid to the latitude and longitude coordinates prined (as
+faint blue crosses) on those maps, then all you need from these modules are
+the plain C<grid_to_ll()> and C<ll_to_grid()> routines.  On the other hand if
+you want to produce latitude and longitude coordinates suitable for Google
+Earth or Wikipedia from a British grid reference, then you need an extra
+step.  Convert your grid reference using C<grid_to_ll()> and then shift it
+from the OSGB36 model to the WGS84 model using C<shift_ll_into_WGS84()>.  To
+go the other way round, shift your WGS84 lat/lon coordinated into OSGB36,
+using C<shift_ll_from_WGS84()>, before you convert them using
+C<ll_to_grid()>.
+
+If you have a requirement for really accurate work (say to within a
+millimetre or two) then the above routines may not satisfy you, as they are
+only really accurate to within a metre or two.  Instead you will need to use
+the OS's newly published transformation matrix called OSTN02.  This
+monumental work re-defines the British grid interms of offsets from WGS84 to
+allow really accurate grid references to be determined from really accurate
+GPS readings (the sort you get from professional fixed base stations, not
+from your car's sat nav or your hand held device).  The problem with it is
+that it defines the grid in terms of a deviation in three dimensions from a
+pseudo-grid based on WGS84 and it does this separately for every square metre
+of the country, so the data set is huge and takes several seconds to load
+even on a fast machine.  Nevertheless a Perl version of OSTN02 is included as
+a seperate module in this distribution just in case you really need it (but
+you don't need it for any "normal" work).  Because of the way it is defined,
+it works differently from the approximate routines described above.
+
+Starting with a really accurate lat/lon reading in WGS84 terms, you need to
+transform it into a pseudo-grid reference using C<ll_to_grid()> with an
+optional argument to tell it to use the WGS84 geoid parameters instead of the
+default OSGB36 parameters.  C<Geo::Coordinates::OSTN02> then provides a
+routine called C<ETRS89_to_OSGB36()> which will shift this pseudo-grid
+reference into an accurate OSGB grid reference.  To go back the other way,
+you use C<OSGB36_to_ETRS89()> to make a pseudo-grid reference, and then call
+C<grid_to_ll()> with the WGS84 parameter to get WGS84 lat/long coordinates.
+
 =head1 BUGS
 
 The conversions are only approximate.   So after
 
-  ($a1,$b1) = grid2ll(ll2grid($a,$b));
+  ($a1,$b1) = grid_to_ll(ll_to_grid($a,$b));
 
 neither C<$a==$a1> nor C<$b==$b1>. However C<abs($a-$a1)> and C<abs($b-$b1)>
 should be less than C<0.00001> which will give you accuracy to within a few
 centimetres.  Note that the error increases the further away you are from the
-reference point of your grid system.
+reference point of the grid system.
 
-When using ll2grid in scalar mode to get a "TQ999999" type of grid reference
+When using ll_to_grid in scalar mode to get a "TQ999999" type of grid reference
 OSGB tends to round to the *nearest* 100m grid intersection rather than to
 the one to the left and below, this may cause your grid references to be to off
 by one in the last digit, but probably gives more consistent results overall.
@@ -979,41 +1245,14 @@ Not enough testing has been done.
 
 This module is intended for use in the UK with the Ordnance Survey's National
 Grid, however the conversion routines are written in an entirely generic way
-that you can adapt to provide you with a Transverse Mercator Projection for
-any location on the the globe (or any other approximately spherical planet
-for that matter).  What you need to do is to define the size of an ellipsoid
-that closely approximates your planet, and then define a suitable projection
-on top of it.
+that you can adapt to any other ellipsoid model that is suitable for your
+local area of the earth.
 
-For the non-mathematicians among us, an ellipsoid is a sort of squashed ball
-that approximately represents the shape of the Earth.  Using an approximation
-greatly simplifies working out latitudes and longitudes.  Over the years
-cartographers have used a variety of different approximations that suit their
-local conditions and the tools they have at their disposal.  You need to
-choose an appropriate approximation for your work.  For example coordinates
-given by a GPS device will be based on one approximation, while coordinates
-you read from an 18th century chart might use another.  You can find the
-numbers that define frequently used historical and modern approximations in a
-table such as the one given in the OS paper referenced above.
-
-Choosing the exact ellipsoid model it a matter of some theoretical
-discussion, but for most practical purposes on earth the default values used
-by the UK ordnance survey will probably work for your data.  However you may
-get better results setting the ellipsoid to the standard WGS84 shape, which is
-what the GPS satellite network uses and is appropriate for working with
-GPS-derived longitude and latitude coordinates.
-
-To use WGS84, add the "set_ellipsoid" function to the list that you import
-from C<Geo::Coordinates::OSGB>, and call it like this in your script:
-
-   set_ellipsoid(6378137.0,6356752.3141)
-
-Next you have to define the projection that defines your local grid and the
-reference points for the grid.  This can be done with the "set_projection"
-function, which you will also need to import.  To get the parameters for
-"set_projection" you need to start by choosing an point in the middle of your
-area and finding the longitude and latitude.  This is known as the True
-Origin of the Projection.
+Once you have defined the ellipsoid to use in terms of its major and minor
+diameters you have to define the projection that defines your local grid and
+the reference points for the grid.  You need to start by choosing an point in
+the middle of your area and finding the longitude and latitude.  This is
+known as the True Origin of the Projection.
 
 You then need to know (or invent) the grid reference for this point.  This is
 entirely arbitrary unless you are trying to conform to someone else's grid.
@@ -1026,20 +1265,15 @@ of the westerly limit.  This point will have grid coordinates (0, 0), and all
 your other grid coordinates will be positive.  This point is known as the
 False Origin of the Projection.
 
-So assuming your reference point is 150 degrees west and 47 degrees north,
-and you want this point to be grid reference 100000 east, 200000 north (in
-metres) then you should set
+In Britain the True Point of Origin is a point (near the northern coast of
+France) at 49° North and 2° West (in the OSGB36 model), and this is given the
+grid coordinated (400000,-100000) so that the False point of origin, point
+(0,0) is just to the SW of the Scilly Isles.
 
-  set_projection(47.0,-150.0,100000,200000,1)
-
-The fifth parameter is the scale factor on the central meridian of the
-projection:  for small areas just set this equal to 1. Making this parameter
-slightly less than 1 can reduce the scale distortion on the far east and west
-sides of the grid.
 
 =head1 AUTHOR
 
-Toby Thurston ---  7 Sep 2005
+Toby Thurston ---  4 Sep 2007
 
 web: http://www.wildfire.dircon.co.uk
 
@@ -1053,3 +1287,5 @@ paper).
 See L<Geo::Coordinates::Lambert> for a French approach.
 
 =cut
+
+1;

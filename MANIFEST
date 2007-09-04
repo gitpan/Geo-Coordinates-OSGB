@@ -1,14 +1,20 @@
-Changes
 MANIFEST
-Makefile.PL
 README
+Changes
+Makefile.PL
 lib/Geo/Coordinates/OSGB.pm
-t/00load.t
-t/random.t
-t/known.t
+lib/Geo/Coordinates/OSTN02.pm
+bng_to_ll.pl
 coco.pl
 plotmaps.pl
+lr-index.txt
 plotmaps.pdf
 gb-coastline.dat
-lr-index.txt
+t/01load.t
+t/02known.t
+t/03random.t
+t/04parsing.t
+t/05load.t
+t/06transform.t
+t/07osdata.t
 META.yml                                 Module meta-data (added by MakeMaker)
