@@ -18,9 +18,9 @@ to define the National Grid from GPS surveys.  This module provides
 accurate conversion between the British National Grid and
 latitude/longitude coordinates based on the global WGS84 geoid model
 (the one used by all GPS devices, and popular mapping tools such as
-Google Earth).  The OSTN02 data is rather large, and will take a few
-seconds to load even on a quick machine, but once loaded conversions
-should be reasonably quick.
+Google Earth).  The OSTN02 data is rather large (11M bytes), and will
+take a couple of seconds to load even on a quick machine, but once
+loaded conversions should be reasonably quick.
 
 INSTALLATION
 

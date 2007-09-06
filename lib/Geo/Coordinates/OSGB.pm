@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 our @ISA = qw(Exporter);
-our $VERSION = '2.00';
+our $VERSION = '2.01';
 our @EXPORT = qw();
 our @EXPORT_OK = qw(
     ll_to_grid
@@ -773,7 +773,7 @@ __END__
 
 =head1 NAME
 
-Geo::Coordinates::OSGB --- Convert Coordinates from Lat/Long to UK Grid
+Geo::Coordinates::OSGB - Convert Coordinates from Lat/Long to UK Grid
 
 A UK-specific implementation of co-ordinate conversion, following formulae
 from the Ordnance Survey of Great Britain (hence the name), from the OSGB
@@ -800,9 +800,9 @@ companion L<Geo::Coordinates::OSTN02> which implements the transformation
 (known as OSTN02) that now defines the relationship between GPS survey data
 based on WGS84 and the British National Grid.  Using this module you should
 be able to get results that are accurate to within a few centimetres, but it
-is rather slower and more of a fiddle to use.
+is a little bit slower and requires a bit more memory to run.
 
-Version: 2.00
+Version: 2.01
 
 =head1 SYNOPSIS
 
@@ -1273,7 +1273,7 @@ grid coordinated (400000,-100000) so that the False point of origin, point
 
 =head1 AUTHOR
 
-Toby Thurston ---  4 Sep 2007
+Toby Thurston ---  6 Sep 2007
 
 web: http://www.wildfire.dircon.co.uk
 
