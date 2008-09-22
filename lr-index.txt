@@ -1,8 +1,8 @@
 #               Grid ref    ISBN Fold   ISBN Flat   Title
 #--------------------------------------------------------------------------------------------------
-001  Sheet 1    HU 290 790  0319128083  031922807X  Shetland, Yell, Unst & Fetlar
+001  Sheet 1    HU 290 800  0319128083  031922807X  Shetland, Yell, Unst & Fetlar
 002  Sheet 2    HU 330 560  0319128091  0319228088  Shetland, Sullom Voe & Whalsay
-003  Sheet 3    HU 170 440  0319128105  0319228096  Shetland, North Mainland
+003  Sheet 3    HU 140 470  0319128105  0319228096  Shetland, North Mainland
 004  Sheet 4    HU 200 070  0319128113  031922810X  Shetland, South Mainland
 005  Sheet 5    HY 400 200  0319128121  0319228118  Orkney - Northern Isles
 006  Sheet 6    ND 210 960  031912813X  0319228126  Orkney - Mainland

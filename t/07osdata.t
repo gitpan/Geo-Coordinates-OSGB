@@ -1,3 +1,7 @@
+#! perl -w
+# Toby Thurston ---  7 Sep 2007
+use strict;
+
 # StationName     Eeg°in'9_Lat_Sec  EDeg°in'_Long_Sec  ETRS89_Height  ETRS89_East  ETRS89_North  OSGB36_East  OSGB36_North  ODN_Height
 my %test_input = (
   Scilly        => [ 49.922263943333, -6.299777527222,  100.000,   91400.000,    11400.000,   91492.135,    11318.801,  46.882 ],

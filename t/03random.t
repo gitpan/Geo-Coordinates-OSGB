@@ -1,4 +1,4 @@
-# Toby Thurston --- 30 Jan 2007
+# Toby Thurston ---  7 Sep 2007
 
 # first test by taking ten random pairs of long/lat in the range of
 # the British Isles 1E -- 6W, 49N -- 59N and checking that we
@@ -11,39 +11,56 @@ use Geo::Coordinates::OSGB qw(
     format_grid_landranger
     format_grid_trad
     parse_landranger_grid
+    format_ll_ISO
+    shift_ll_into_WGS84
+    shift_ll_from_WGS84
     );
 
-use Test::Simple tests => 20;
+use Test::Simple tests => 30;
+use strict;
 
-$eps = 0.0001;
+my $eps = 0.0001;
 
 for (1..10) {
-    $phi = rand() * 2 + 51;  # 51 -- 53
-    $lam = rand() * 2 - 1 ;  # -1 -- +1
+    my $phi = rand() * 2 + 51;  # 51 -- 53
+    my $lam = rand() * 2 - 1 ;  # -1 -- +1
 
-    ($E,$N) = ll_to_grid($phi,$lam);
-    ($phi2,$lam2) = grid_to_ll($E,$N);
+    my ($E,$N) = ll_to_grid($phi,$lam);
+    my ($ph2,$la2) = grid_to_ll($E,$N);
 
-  # warn sprintf  "%6f :: $phi => $E => $phi2\n",abs($phi-$phi2);
-  # warn sprintf  "%6f :: $lam => $N => $lam2\n",abs($lam-$lam2);
+    ok( abs($phi-$ph2)<$eps && abs($lam-$la2)<$eps, sprintf "Grid/LL: %s=%s",
+                                                    format_ll_ISO($phi, $lam),
+                                                    format_ll_ISO($ph2, $la2) );
+}
 
-    ok( abs($phi-$phi2)<$eps && abs($lam-$lam2)<$eps, sprintf "LL: %8.5f°=%8.5f°", $phi, $phi2);
+
+for (1..10) {
+    my $phi = rand() * 3 + 51;  # 51 -- 54
+    my $lam = rand() * 3 - 2 ;  # -2 -- +1
+
+    my ($p84,$l84) = shift_ll_into_WGS84($phi,$lam);
+    my ($ph2,$la2) = shift_ll_from_WGS84($p84,$l84);
+
+    ok( abs($phi-$ph2)<$eps && abs($lam-$la2)<$eps, sprintf "WGS84/LL: %s=%s",
+                                                      format_ll_ISO($phi, $lam),
+                                                      format_ll_ISO($ph2, $la2) );
 }
 
 # now test 10 random grid locations and cycle them through grid -> short grid -> map
 
 for (1..10) {
 
-    $e = rand() * 289000 + 269000; # sheet 170 -- 122
-    $n = rand() * 225000 + 165000; # sheet 170 -- 122
+    my $e = rand() * 289000 + 269000; # sheet 170 -- 122
+    my $n = rand() * 225000 + 165000; # sheet 170 -- 122
+    my @sheets;
 
     (undef, $e, $n, @sheets) = format_grid_landranger($e,$n);
 
     if ( @sheets ) {
-        $gr1 = format_grid_trad(
+        my $gr1 = format_grid_trad(
                      parse_landranger_grid($sheets[0],sprintf("%03d",$e),sprintf("%03d",$n))
                );
-        $gr2 = format_grid_trad(
+        my $gr2 = format_grid_trad(
                  ll_to_grid(
                    grid_to_ll(
                      parse_landranger_grid($sheets[0],sprintf("%03d",$e),sprintf("%03d",$n))
@@ -51,7 +68,7 @@ for (1..10) {
                  )
                );
 
-        ok( ($gr1 eq $gr2) && ($sheets[0] > 100) && ($sheets[0] < 180), "GR: $gr1 eq $gr2" );
+        ok( ($gr1 eq $gr2) && ($sheets[0] > 100) && ($sheets[0] < 180), "GR: $gr1=$gr2" );
 
     }
 }

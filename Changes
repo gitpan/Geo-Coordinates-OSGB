@@ -1,5 +1,15 @@
 Revision history for Perl extension Geo::Coordinates::OSGB
 
+2.02 22 September 2008
+
+    - Removed irritating degree sign from verbose test message (no functional change)
+    - Make parse_landranger_grid behave better in scalar context
+    - Improve useability of parse_grid
+    - Correct GR of SW corner of Landranger Sheet 3
+    - Further optimize handling of OSTN02 data to prevent data parsing at pod2man time
+    - Improve documentation
+    - More example scripts (with notes)
+
 2.01 6 September 2007
 
     - Optimized handling of OSTN02 data to reduce memory requirements *and* speed it up.

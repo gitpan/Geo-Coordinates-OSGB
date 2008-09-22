@@ -1,7 +1,8 @@
-# Toby Thurston --- 31 Jan 2007
+# Toby Thurston ---  7 Sep 2007
 
 # tests from the OS paper
 
+use strict;
 use Geo::Coordinates::OSTN02 qw/ETRS89_to_OSGB36 OSGB36_to_ETRS89/;
 use Geo::Coordinates::OSGB   qw/grid_to_ll ll_to_grid/;
 

@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 our @ISA = qw(Exporter);
-our $VERSION = '2.01';
+our $VERSION = '2.02';
 our @EXPORT = qw();
 our @EXPORT_OK = qw(
     ll_to_grid
@@ -235,7 +235,7 @@ use constant SQUARE     => 100000;
 our %LR = (
 1   => [ 429000 ,1179000 ] ,
 2   => [ 433000 ,1156000 ] ,
-3   => [ 417000 ,1144000 ] ,
+3   => [ 414000 ,1147000 ] ,
 4   => [ 420000 ,1107000 ] ,
 5   => [ 340000 ,1020000 ] ,
 6   => [ 321000 , 996000 ] ,
@@ -512,6 +512,7 @@ sub parse_grid {
     return parse_trad_grid($s) if $s =~ $GR_Pattern;
     return parse_GPS_grid($s)  if $s =~ $Long_GR_Pattern;
     return parse_landranger_grid($1, $2, $3) if $s =~ $LR_Pattern;
+    return parse_landranger_grid($s) if $s =~ /^\d{1,3}$/ && $s < 205;
     confess "$s <-- this does not match my grid ref patterns\n";
     return
 }
@@ -585,7 +586,9 @@ sub parse_landranger_grid {
 
     confess "$sheet is not one of the OS Sheet numbers I know about\n" unless defined $LR{$sheet};
 
-    return @{$LR{$sheet}} unless @_;
+    unless (@_) {
+        return wantarray ? @{$LR{$sheet}} : format_grid_trad(@{$LR{$sheet}});
+    }
 
     use integer;
 
@@ -595,12 +598,28 @@ sub parse_landranger_grid {
 
     # offset from start, corrected if we are in the next 100km sq
     my $offset = $e - $lle%100_000 ; $offset += 100_000 if $offset < 0;
-    confess "Easting given is not on Sheet $sheet\n" unless $offset <= 40_000 && $offset >= 0;
-    $e = $lle + $offset;
 
+    if ( $offset >= 40_000 ) {
+        confess sprintf "Easting is %.1f km east of Sheet %s\n", $offset/1000-40, $sheet;
+    }
+    elsif ( $offset < 0 ) {
+        confess sprintf "Easting is %.1f km west of Sheet %s\n", abs($offset/1000), $sheet;
+    }
+    else {
+        $e = $lle + $offset;
+    }
+
+    # now the same for the northing
     $offset = $n - $lln%100_000 ; $offset += 100_000 if $offset < 0;
-    confess "Northing given is not on Sheet $sheet\n" unless $offset <= 40_000 && $offset >= 0;
-    $n = $lln + $offset;
+    if ( $offset >= 40_000 ) {
+        confess sprintf "Northing is %.1f km north of Sheet %s\n", $offset/1000-40, $sheet;
+    }
+    elsif ( $offset < 0 ) {
+        confess sprintf "Northing is %.1f km south of Sheet %s\n", abs($offset/1000), $sheet;
+    }
+    else {
+        $n = $lln + $offset;
+    }
 
     return ($e, $n);
 
@@ -801,8 +820,6 @@ companion L<Geo::Coordinates::OSTN02> which implements the transformation
 based on WGS84 and the British National Grid.  Using this module you should
 be able to get results that are accurate to within a few centimetres, but it
 is a little bit slower and requires a bit more memory to run.
-
-Version: 2.01
 
 =head1 SYNOPSIS
 
@@ -1273,7 +1290,7 @@ grid coordinated (400000,-100000) so that the False point of origin, point
 
 =head1 AUTHOR
 
-Toby Thurston ---  6 Sep 2007
+Toby Thurston --- 22 Sep 2008
 
 web: http://www.wildfire.dircon.co.uk
 
@@ -1287,5 +1304,3 @@ paper).
 See L<Geo::Coordinates::Lambert> for a French approach.
 
 =cut
-
-1;

@@ -3,7 +3,12 @@
 use strict;
 use warnings;
 
-use Geo::Coordinates::OSGB qw/parse_grid grid_to_ll shift_ll_into_WGS84 format_ll_dms format_grid_landranger/;
+use Geo::Coordinates::OSGB qw/
+        parse_grid
+        grid_to_ll
+        shift_ll_into_WGS84
+        format_ll_dms
+        format_grid_landranger/;
 
 my $gr = "@ARGV";
 
