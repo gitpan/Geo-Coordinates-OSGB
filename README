@@ -2,33 +2,31 @@ Geo::Coordinates::OSGB
 Geo::Coordinates::OSTN02
 ----------------------
 
-Routines to convert latitude and longitude coordinates to and from
-transverse Mercator grid references, that are optimized for use with the
-British national grid.
+Routines to convert latitude and longitude coordinates to and from transverse
+Mercator grid references, that are optimized for use with the British
+national grid.
 
 The OSGB module provides routines to convert between latitude/longitude
-coordinates based on the British Ordnance Survey's standard geoid model
-(Airy 1830) and the British National Grid.  The module includes some
-useful extra routines to parse and format grid references in a variety
-of popular forms (including which Landranger map your point appears on).
+coordinates based on the British Ordnance Survey's standard geoid model and
+the British National Grid.  The module includes some useful extra routines to
+parse and format grid references in a variety of popular forms (including
+which Landranger map your point appears on).
 
-The second module provides an implementation of the newly released
-transformation tables that are now used by the British Ordnance Survey
-to define the National Grid from GPS surveys.  This module provides
-accurate conversion between the British National Grid and
-latitude/longitude coordinates based on the global WGS84 geoid model
-(the one used by all GPS devices, and popular mapping tools such as
-Google Earth).  The OSTN02 data is rather large (11M bytes), and will
-take a couple of seconds to load even on a quick machine, but once
-loaded conversions should be reasonably quick.
+The second module provides an implementation of the standard transformation
+tables that are now used by the British Ordnance Survey to define the
+National Grid from GPS surveys.  This module provides accurate conversion
+between the British National Grid and latitude/longitude coordinates based on
+the global WGS84 geoid model (the one used by all GPS devices, and popular
+mapping tools such as Google Earth).  The OSTN02 data is rather large (6M
+bytes), and will take a couple of seconds to load even on a quick machine,
+but once loaded conversions should be reasonably quick.
 
 INSTALLATION
 
-This package installs in the regular Perl way.  You don't need the C
-compiler and as far as I know there are no platform dependencies.
-Either use your local package tool, or "perl -MCPAN -e shell".  Can also
-be installed by hand; just unzip it to some temporary home, then do the
-usual thing:
+This package installs in the regular Perl way.  You don't need the C compiler
+and as far as I know there are no platform dependencies.  Either use your
+local package tool, or "perl -MCPAN -e shell".  Can also be installed by
+hand; just unzip it to some temporary home, then do the usual thing:
 
         Perl Makefile.PL
         make

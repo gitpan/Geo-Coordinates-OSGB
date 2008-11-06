@@ -5,9 +5,11 @@ Makefile.PL
 lib/Geo/Coordinates/OSGB.pm
 lib/Geo/Coordinates/OSTN02.pm
 bng_to_ll.pl
-coco.pl
-plotmaps.pl
+ll_to_bng.pl
+zero-points.pl
 lr-index.txt
+make_kml_index.pl
+plotmaps.pl
 plotmaps.pdf
 gb-coastline.dat
 t/01load.t
@@ -17,4 +19,5 @@ t/04parsing.t
 t/05load.t
 t/06transform.t
 t/07osdata.t
+t/08out_of_range.t
 META.yml                                 Module meta-data (added by MakeMaker)

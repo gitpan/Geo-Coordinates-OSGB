@@ -3,7 +3,7 @@ use strict;
 #
 # A program to produce a post-script plot of all the Landranger sheets,
 # complete with the GB coast line and the 100km grid sqaure letters.
-# Toby Thurston --- 16 May 2005
+# Toby Thurston ---  7 Oct 2008
 #
 use Geo::Coordinates::OSGB "ll_to_grid", "parse_landranger_grid", "format_grid_GPS";
 use Getopt::Std;
@@ -84,9 +84,9 @@ $scale = $h_scale if $h_scale < $scale;
 print << "PREAMBLE";
 %!PS-Adobe-3.0 EPSF-3.0
 %%Creator: $0
-%%Copyright: (C) 2007 Toby Thurston
+%%Copyright: (C) 2008 Toby Thurston
 %%Title:(Index to the Landranger Sheets)
-%%CreationDate: (17 Jan 2007)
+%%CreationDate: (17 Jan 2008)
 %%BoundingBox: 20 20 $urx $ury
 %%Pages: 1
 %%EndComments

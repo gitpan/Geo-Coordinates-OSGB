@@ -2,15 +2,7 @@
 
 # test a known location converts correctly
 
-use Geo::Coordinates::OSGB qw(
-    ll_to_grid
-    grid_to_ll
-    format_grid_trad
-    format_grid_GPS
-    parse_trad_grid
-    parse_landranger_grid
-    format_ll_ISO
-);
+use Geo::Coordinates::OSGB ':all';
 
 use Test::Simple tests => 17;
 
@@ -48,23 +40,23 @@ my ($expected_lat, $expected_lon) = (57, -5.3333333333333);
 ok( abs($expected_lat-$lat)<$eps && abs($expected_lon-$lon)<$eps, 'Glendessary');
 
 my $isoform = format_ll_ISO(grid_to_ll(parse_trad_grid('NM975948')));
-my $expected_iso = '+5700-00520';
-ok( $isoform eq $expected_iso, 'Path above Glendessary');
+my $expected_iso = '+5700-00520/';
+ok( $isoform eq $expected_iso, ">>$isoform<< Path above Glendessary");
 
 $isoform = format_ll_ISO(grid_to_ll(parse_trad_grid('SX700683')));
-$expected_iso = '+5030-00350';
+$expected_iso = '+5030-00350/';
 ok( $isoform eq $expected_iso, 'Scorriton, Devon');
 
 $isoform = format_ll_ISO(grid_to_ll(parse_trad_grid('TQ103606')));
-$expected_iso = '+5120-00025';
-ok( $isoform eq $expected_iso, 'Chobham, Surrey');
+$expected_iso = '+5120-00025/';
+ok( $isoform eq $expected_iso, $isoform . 'Chobham, Surrey');
 
 ($lat,$lon) = grid_to_ll(510350,160600);
 ($expected_lat, $expected_lon) = (51+20/60, -25/60);
 ok( abs($expected_lat-$lat)<$eps && abs($expected_lon-$lon)<$eps, 'Chobham, Again');
 
 $isoform = format_ll_ISO(grid_to_ll(parse_trad_grid('NH173960')));
-$expected_iso = '+5755-00505';
+$expected_iso = '+5755-00505/';
 ok( $isoform eq $expected_iso, 'Glen Achall, Ullapool');
 
 sub test_me {
@@ -78,7 +70,7 @@ ok( test_me('TQ103606') eq 'TQ 103 606' ,"TQ103606");
 ok( test_me('HY554300') eq 'HY 554 300' ,"HY554300");
 
 $isoform = format_ll_ISO(grid_to_ll(parse_trad_grid('HY232040')));
-$expected_iso = '+5855-00320';
+$expected_iso = '+5855-00320/';
 ok( $isoform eq $expected_iso, 'Hoy, Orkney');
 
 $gr = format_grid_trad(parse_landranger_grid('40','975948'));
