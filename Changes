@@ -1,6 +1,6 @@
 Revision history for Perl extension Geo::Coordinates::OSGB
 
-2.03  6 November 2008
+2.04  6 November 2008
 
     - Rework search of OSTN02 data to improve performance and reliability
     - Add range checking of OSTN02 coordinates
@@ -11,6 +11,7 @@ Revision history for Perl extension Geo::Coordinates::OSGB
     - removed old "coco.pl" example script
     - added new example script to show all "000 000" grid references
 
+2.03 Not released
 
 2.02 22 September 2008
 

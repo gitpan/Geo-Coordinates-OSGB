@@ -4,7 +4,7 @@ use strict;
 use warnings;
 
 our @ISA = qw(Exporter);
-our $VERSION = '2.03';
+our $VERSION = '2.04';
 our @EXPORT = qw();
 our %EXPORT_TAGS = (
     all => [ qw( ll_to_grid grid_to_ll
@@ -893,29 +893,38 @@ __END__
 
 =head1 NAME
 
-Geo::Coordinates::OSGB - Convert Coordinates between Lat/Lon and the British National Grid.
+Geo::Coordinates::OSGB - Convert coordinates between Lat/Lon and the British National Grid
 
-These modules are an implementation of co-ordinate conversion for Britain based on formulae published by the Ordnance
-Survey of Great Britain (OSGB), and will convert accurately between a OSGB national grid reference and lat/lon
-coordinates based on the OSGB geoid model.  (For an explanation of what a geoid model is and why you should care, read
-the L<Theory> section below.)
+An implementation of co-ordinate conversion for England, Wales, and Scotland
+based on formulae published by the Ordnance Survey of Great Britain.
 
-The OSGB geoid model fits mainland Britain very well, but is rather different from the international WGS84 model that
-has rapidly become the de facto universal standard model thanks to the popularity of GPS devices and maps on the
-Internet.  So, if you are trying to translate from an OSGB grid reference to lat/lon coordinates that can be used in
-Google Earth, Wikipedia, or some other Internet based tool, you will need to do two transformations:  first translate
-your grid ref into OSGB lat/lon; then nudge the result into WGS84.  Routines are provided to do both of these
-operations, but they are only approximate.  The inaccuracy of the approximation varies according to where you are in the
-country but may be as much as several metres in some areas.
+These modules will convert accurately between an OSGB national grid
+reference and lat/lon coordinates based on the OSGB geoid model.  (For an
+explanation of what a geoid model is and why you should care, read the
+L<Theory> section below.) The OSGB geoid model fits mainland Britain very
+well, but is rather different from the international WGS84 model that has
+rapidly become the de facto universal standard model thanks to the
+popularity of GPS devices and maps on the Internet.  So, if you are trying
+to translate from an OSGB grid reference to lat/lon coordinates that can be
+used in Google Earth, Wikipedia, or some other Internet based tool, you will
+need to do two transformations:  first translate your grid ref into OSGB
+lat/lon; then nudge the result into WGS84.  Routines are provided to do both
+of these operations, but they are only approximate.  The inaccuracy of the
+approximation varies according to where you are in the country but may be as
+much as several metres in some areas.
 
-To get more accurate results you need to combine this module with its companion L<Geo::Coordinates::OSTN02> which
-implements the transformation that now defines the relationship between GPS survey data based on WGS84 and the British
-National Grid.  Using this module you should be able to get results that are accurate to within a few centimetres, but
-it is slightly slower and requires more memory to run.
+To get more accurate results you need to combine this module with its
+companion L<Geo::Coordinates::OSTN02> which implements the transformation
+that now defines the relationship between GPS survey data based on WGS84 and
+the British National Grid.  Using this module you should be able to get
+results that are accurate to within a few centimetres, but it is slightly
+slower and requires more memory to run.
 
-Note that the OSGB (and therefore this module) does not cover the whole of the British Isles, nor even the whole of the
-UK, in particular it covers neither the Channel Islands nor Northern Ireland.  The coverage that is
-included is essentially the same as the coverage provided by the OSGB "Landranger" 1:50000 series maps.
+Note that the OSGB (and therefore this module) does not cover the whole of
+the British Isles, nor even the whole of the UK, in particular it covers
+neither the Channel Islands nor Northern Ireland.  The coverage that is
+included is essentially the same as the coverage provided by the OSGB
+"Landranger" 1:50000 series maps.
 
 =head1 SYNOPSIS
 

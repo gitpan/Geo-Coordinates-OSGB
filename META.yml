@@ -1,7 +1,7 @@
 --- #YAML:1.0
 name:                Geo-Coordinates-OSGB
-version:             2.03
-abstract:            Convert Coordinates between Lat/Lon and the British National Grid.
+version:             2.04
+abstract:            Convert coordinates between Lat/Lon and the British National Grid
 license:             ~
 generated_by:        ExtUtils::MakeMaker version 6.3201
 distribution_type:   module
