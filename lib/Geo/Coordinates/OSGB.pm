@@ -1,11 +1,10 @@
 package Geo::Coordinates::OSGB;
-require Exporter;
+use base qw(Exporter);
 use strict;
 use warnings;
+use Carp;
 
-our @ISA = qw(Exporter);
-our $VERSION = '2.04';
-our @EXPORT = qw();
+our $VERSION = '2.05';
 our %EXPORT_TAGS = (
     all => [ qw( ll_to_grid grid_to_ll
                  shift_ll_into_WGS84 shift_ll_from_WGS84
@@ -17,55 +16,62 @@ our %EXPORT_TAGS = (
 our @EXPORT_OK = ( @{ $EXPORT_TAGS{all} } );
 
 use Math::Trig qw(tan sec);
-use Carp;
 
 use constant PI  => 4 * atan2 1, 1;
 use constant RAD => PI / 180;
 use constant DAR => 180 / PI;
 
-use constant WGS84_MAJOR_AXIS => 6378137.000;
+use constant WGS84_MAJOR_AXIS => 6_378_137.000;
+use constant WGS84_MINOR_AXIS => 6_356_752.314_25;
 use constant WGS84_FLATTENING => 1 / 298.257223563;
 
+use constant OSGB_MAJOR_AXIS  => 6_377_563.396;
+use constant OSGB_MINOR_AXIS  => 6_356_256.910;
+
 # set defaults for Britain
-our %ellipsoid_shapes = (
-    WGS84  => [ 6378137.0000, 6356752.31425 ],
-    ETRS89 => [ 6378137.0000, 6356752.31425 ],
-    ETRN89 => [ 6378137.0000, 6356752.31425 ],
-    GRS80  => [ 6378137.0000, 6356752.31425 ],
-    OSGB36 => [ 6377563.396,  6356256.910  ],
-    OSGM02 => [ 6377563.396,  6356256.910  ],
-);
-# yes lots of synonyms
+my %ellipsoid_shapes = (
+    WGS84  => [ WGS84_MAJOR_AXIS, WGS84_MINOR_AXIS ],
+    ETRS89 => [ WGS84_MAJOR_AXIS, WGS84_MINOR_AXIS ],
+    ETRN89 => [ WGS84_MAJOR_AXIS, WGS84_MINOR_AXIS ],
+    GRS80  => [ WGS84_MAJOR_AXIS, WGS84_MINOR_AXIS ],
+    OSGB36 => [ OSGB_MAJOR_AXIS,  OSGB_MINOR_AXIS  ],
+    OSGM02 => [ OSGB_MAJOR_AXIS,  OSGB_MINOR_AXIS  ],
+); # yes lots of synonyms
 
 # constants for OSGB mercator projection
-use constant LAM0 => RAD * -2;  # lon of grid origin
-use constant PHI0 => RAD * 49;  # lat of grid origin
-use constant E0   =>  400000;   # Easting for origin
-use constant N0   => -100000;   # Northing for origin
-use constant F0   => 0.9996012717; # Convergence factor
+use constant ORIGIN_LONGITUDE    => RAD * -2;
+use constant ORIGIN_LATITUDE     => RAD * 49;
+use constant ORIGIN_EASTING      => 400_000;
+use constant ORIGIN_NORTHING     => -100_000;
+use constant CONVERGENCE_FACTOR  => 0.9996012717;
 
-# useful patterns
-our $Real_Pattern    = qr /^[-+][\.\d]+$/;
-our $GSq_Pattern     = qr /[GHJMNORST][A-Z]/i;
-our $LR_Pattern      = qr /^(\d{1,3})\D+(\d{3})\D?(\d{3})$/;
-our $GR_Pattern      = qr /^($GSq_Pattern)\s?(\d{3})\D?(\d{3})$/;
-our $Long_GR_Pattern = qr /^($GSq_Pattern)\s?(\d{5})\D?(\d{5})$/;
-our $ISO_LL_Pattern = qr{\A
+# size of LR sheets
+use constant LR_SHEET_SIZE => 40_000;
+
+# Pattern to recognise ISO long/lat strings
+my $ISO_LL_PATTERN  = qr{\A
                         ([-+])(    \d{2,6})(?:\.(\d+))?
                         ([-+])([01]\d{2,6})(?:\.(\d+))?
                         ([-+][\.\d]+)?
                         \/
-                        \Z}xo;
-
+                        \Z}smxo;
 
 sub ll_to_grid {
-    return unless defined wantarray;
 
-    my $shape = defined $ellipsoid_shapes{$_[-1]} ? pop : 'OSGB36'; # last argument (or omitted)
+    my ($lat, $lon, $alt, $shape, @junk) = @_;
 
-    my ($lat, $lon, $alt, @junk) = @_;
+    return if !defined wantarray;
 
-    if ($lat =~ $ISO_LL_Pattern ) {
+    if ( $alt && defined $ellipsoid_shapes{$alt} ) {
+        $shape = $alt;
+        $alt = undef;
+    }
+
+    if ( ! ($shape && defined $ellipsoid_shapes{$shape}) ) {
+        $shape = 'OSGB36';
+    }
+
+    if ($lat =~ $ISO_LL_PATTERN ) {
         ($lat, $lon, $alt) = parse_ISO_ll($lat);
     }
 
@@ -78,16 +84,16 @@ sub ll_to_grid {
     my $lam = RAD * $lon;
 
     my $sp2  = sin($phi)**2;
-    my $nu   = $a * F0 * (1 - $e2 * $sp2 ) ** -0.5;
-    my $rho  = $a * F0 * (1 - $e2) * (1 - $e2 * $sp2 ) ** -1.5;
+    my $nu   = $a * CONVERGENCE_FACTOR * (1 - $e2 * $sp2 ) ** -0.5;
+    my $rho  = $a * CONVERGENCE_FACTOR * (1 - $e2) * (1 - $e2 * $sp2 ) ** -1.5;
     my $eta2 = $nu/$rho - 1;
 
-    my $M = _compute_M($phi, $b, $n);
+    my $M = _compute_big_m($phi, $b, $n);
 
-    my $cp = cos($phi); my $sp = sin($phi); my $tp = tan($phi);
+    my $cp = cos $phi ; my $sp = sin $phi; my $tp = tan($phi);
     my $tp2 = $tp*$tp ; my $tp4 = $tp2*$tp2 ;
 
-    my $I    = $M + N0;
+    my $I    = $M + ORIGIN_NORTHING;
     my $II   = $nu/2  * $sp * $cp;
     my $III  = $nu/24 * $sp * $cp**3 * (5-$tp2+9*$eta2);
     my $IIIA = $nu/720* $sp * $cp**5 *(61-58*$tp2+$tp4);
@@ -96,12 +102,12 @@ sub ll_to_grid {
     my $V    = $nu/6   * $cp**3 * ($nu/$rho-$tp2);
     my $VI   = $nu/120 * $cp**5 * (5-18*$tp2+$tp4+14*$eta2-58*$tp2*$eta2);
 
-    my $l = $lam - LAM0;
+    my $l = $lam - ORIGIN_LONGITUDE;
     my $north = $I  + $II*$l**2 + $III*$l**4 + $IIIA*$l**6;
-    my $east  = E0 + $IV*$l    +   $V*$l**3 +   $VI*$l**5;
+    my $east  = ORIGIN_EASTING + $IV*$l    +   $V*$l**3 +   $VI*$l**5;
 
     # round to 3dp (mm)
-    ($east, $north) = map { sprintf "%.3f", $_ } ($east, $north);
+    ($east, $north) = map { sprintf '%.3f', $_ } ($east, $north);
 
     return ($east,$north) if wantarray;
     return format_grid_trad($east, $north);
@@ -109,13 +115,15 @@ sub ll_to_grid {
 
 sub grid_to_ll {
 
-    return unless defined wantarray;
+    my ($E, $N, $shape, @junk) = @_;
 
-    my $shape = defined $ellipsoid_shapes{$_[-1]} ? pop : 'OSGB36'; # last argument (or omitted)
+    return if !defined wantarray;
 
-    my ($E, $N, @junk) = @_;
+    if ( ! ($shape && defined $ellipsoid_shapes{$shape}) ) {
+        $shape = 'OSGB36';
+    }
 
-    if ( $E =~ $GR_Pattern || $E =~ $Long_GR_Pattern || $E =~ $LR_Pattern ) {
+    if ( ! defined $N ) {
         ($E, $N) = parse_grid($E);
     }
 
@@ -124,20 +132,20 @@ sub grid_to_ll {
     my $e2 = ($a**2-$b**2)/$a**2;
     my $n = ($a-$b)/($a+$b);
 
-    my $dN = $N - N0;
+    my $dn = $N - ORIGIN_NORTHING;
 
     my ($phi, $lam);
-    $phi = PHI0 + $dN/($a * F0);
+    $phi = ORIGIN_LATITUDE + $dn/($a * CONVERGENCE_FACTOR);
 
-    my $M = _compute_M($phi, $b, $n);
-    while ($dN-$M >= 0.001) {
-       $phi = $phi + ($dN-$M)/($a * F0);
-       $M = _compute_M($phi, $b, $n);
+    my $M = _compute_big_m($phi, $b, $n);
+    while ($dn-$M >= 0.001) {
+       $phi = $phi + ($dn-$M)/($a * CONVERGENCE_FACTOR);
+       $M = _compute_big_m($phi, $b, $n);
     }
 
     my $sp2  = sin($phi)**2;
-    my $nu   = $a * F0 *             (1 - $e2 * $sp2 ) ** -0.5;
-    my $rho  = $a * F0 * (1 - $e2) * (1 - $e2 * $sp2 ) ** -1.5;
+    my $nu   = $a * CONVERGENCE_FACTOR *             (1 - $e2 * $sp2 ) ** -0.5;
+    my $rho  = $a * CONVERGENCE_FACTOR * (1 - $e2) * (1 - $e2 * $sp2 ) ** -1.5;
     my $eta2 = $nu/$rho - 1;
 
     my $tp = tan($phi); my $tp2 = $tp*$tp ; my $tp4 = $tp2*$tp2 ;
@@ -153,23 +161,24 @@ sub grid_to_ll {
     my $XII  = $sp/( 120*$nu**5)*(      5 + 28*$tp2 +   24*$tp4);
     my $XIIA = $sp/(5040*$nu**7)*(    61 + 662*$tp2 + 1320*$tp4 + 720*$tp6);
 
-    my $e = $E - E0;
+    my $e = $E - ORIGIN_EASTING;
 
-    $phi = $phi         - $VII*$e**2 + $VIII*$e**4 -   $IX*$e**6;
-    $lam = LAM0 + $X*$e -  $XI*$e**3 +  $XII*$e**5 - $XIIA*$e**7;
+    $phi = $phi - $VII*$e**2 + $VIII*$e**4 - $IX*$e**6;
+    $lam = ORIGIN_LONGITUDE + $X*$e - $XI*$e**3 + $XII*$e**5 - $XIIA*$e**7;
 
-    $phi *= DAR;
-    $lam *= DAR;
+    # now put into degrees & return
+    my $lat = $phi * DAR;
+    my $lon = $lam * DAR;
 
-    return ($phi, $lam) if wantarray;
-    return format_ll_ISO($phi,$lam);
+    return ($lat, $lon) if wantarray;
+    return format_ll_ISO($lat,$lon);
 }
 
-sub _compute_M {
+sub _compute_big_m {
     my ($phi, $b, $n) = @_;
-    my $p_plus  = $phi + PHI0;
-    my $p_minus = $phi - PHI0;
-    return $b * F0 * (
+    my $p_plus  = $phi + ORIGIN_LATITUDE;
+    my $p_minus = $phi - ORIGIN_LATITUDE;
+    return $b * CONVERGENCE_FACTOR * (
            (1 + $n * (1 + 5/4*$n*(1 + $n)))*$p_minus
          - 3*$n*(1+$n*(1+7/8*$n))  * sin(  $p_minus) * cos(  $p_plus)
          + (15/8*$n * ($n*(1+$n))) * sin(2*$p_minus) * cos(2*$p_plus)
@@ -178,25 +187,20 @@ sub _compute_M {
 }
 
 
-our @Grid = ( [ qw( V W X Y Z ) ],
-              [ qw( Q R S T U ) ],
-              [ qw( L M N O P ) ],
-              [ qw( F G H J K ) ],
-              [ qw( A B C D E ) ] );
 
-our %Big_off = (
-                 G => { E => -1, N => 2 },
-                 H => { E =>  0, N => 2 },
-                 J => { E =>  1, N => 2 },
-                 M => { E => -1, N => 1 },
-                 N => { E =>  0, N => 1 },
-                 O => { E =>  1, N => 1 },
-                 R => { E => -1, N => 0 },
-                 S => { E =>  0, N => 0 },
-                 T => { E =>  1, N => 0 },
+my %BIG_OFF = (
+              G => { E => -1, N => 2 },
+              H => { E =>  0, N => 2 },
+              J => { E =>  1, N => 2 },
+              M => { E => -1, N => 1 },
+              N => { E =>  0, N => 1 },
+              O => { E =>  1, N => 1 },
+              R => { E => -1, N => 0 },
+              S => { E =>  0, N => 0 },
+              T => { E =>  1, N => 0 },
            );
 
-our %Small_off = (
+my %SMALL_OFF = (
                  A => { E =>  0, N => 4 },
                  B => { E =>  1, N => 4 },
                  C => { E =>  2, N => 4 },
@@ -228,420 +232,403 @@ our %Small_off = (
                  Z => { E =>  4, N => 0 },
            );
 
-use constant BIG_SQUARE => 500000;
-use constant SQUARE     => 100000;
+use constant BIG_SQUARE => 500_000;
+use constant SQUARE     => 100_000;
 
 # Landranger sheet data
 # These are the full GRs (as metres from Newlyn) of the SW corner of each sheet.
-our %LR = (
-1   => [ 429000 ,1179000 ] ,
-2   => [ 433000 ,1156000 ] ,
-3   => [ 414000 ,1147000 ] ,
-4   => [ 420000 ,1107000 ] ,
-5   => [ 340000 ,1020000 ] ,
-6   => [ 321000 , 996000 ] ,
-7   => [ 315000 , 970000 ] ,
-8   => [ 117000 , 926000 ] ,
-9   => [ 212000 , 940000 ] ,
-10  => [ 252000 , 940000 ] ,
-11  => [ 292000 , 929000 ] ,
-12  => [ 300000 , 939000 ] ,
-13  => [  95000 , 903000 ] ,
-14  => [ 105000 , 886000 ] ,
-15  => [ 196000 , 900000 ] ,
-16  => [ 236000 , 900000 ] ,
-17  => [ 276000 , 900000 ] ,
-18  => [  69000 , 863000 ] ,
-19  => [ 174000 , 860000 ] ,
-20  => [ 214000 , 860000 ] ,
-21  => [ 254000 , 860000 ] ,
-22  => [  57000 , 823000 ] ,
-23  => [ 113000 , 836000 ] ,
-24  => [ 150000 , 830000 ] ,
-25  => [ 190000 , 820000 ] ,
-26  => [ 230000 , 820000 ] ,
-27  => [ 270000 , 830000 ] ,
-28  => [ 310000 , 833000 ] ,
-29  => [ 345000 , 830000 ] ,
-30  => [ 377000 , 830000 ] ,
-31  => [  50000 , 783000 ] ,
-32  => [ 130000 , 800000 ] ,
-33  => [ 170000 , 790000 ] ,
-34  => [ 210000 , 780000 ] ,
-35  => [ 250000 , 790000 ] ,
-36  => [ 285000 , 793000 ] ,
-37  => [ 325000 , 793000 ] ,
-38  => [ 365000 , 790000 ] ,
-39  => [ 120000 , 770000 ] ,
-40  => [ 160000 , 760000 ] ,
-41  => [ 200000 , 750000 ] ,
-42  => [ 240000 , 750000 ] ,
-43  => [ 280000 , 760000 ] ,
-44  => [ 320000 , 760000 ] ,
-45  => [ 360000 , 760000 ] ,
-46  => [  92000 , 733000 ] ,
-47  => [ 120000 , 732000 ] ,
-48  => [ 120000 , 710000 ] ,
-49  => [ 160000 , 720000 ] ,
-50  => [ 200000 , 710000 ] ,
-51  => [ 240000 , 720000 ] ,
-52  => [ 270000 , 720000 ] ,
-53  => [ 294000 , 720000 ] ,
-54  => [ 334000 , 720000 ] ,
-55  => [ 164000 , 680000 ] ,
-56  => [ 204000 , 682000 ] ,
-57  => [ 244000 , 682000 ] ,
-58  => [ 284000 , 690000 ] ,
-59  => [ 324000 , 690000 ] ,
-60  => [ 110000 , 640000 ] ,
-61  => [ 131000 , 662000 ] ,
-62  => [ 160000 , 640000 ] ,
-63  => [ 200000 , 642000 ] ,
-64  => [ 240000 , 645000 ] ,
-65  => [ 280000 , 650000 ] ,
-66  => [ 316000 , 650000 ] ,
-67  => [ 356000 , 650000 ] ,
-68  => [ 157000 , 600000 ] ,
-69  => [ 175000 , 613000 ] ,
-70  => [ 215000 , 605000 ] ,
-71  => [ 255000 , 605000 ] ,
-72  => [ 280000 , 620000 ] ,
-73  => [ 320000 , 620000 ] ,
-74  => [ 357000 , 620000 ] ,
-75  => [ 390000 , 620000 ] ,
-76  => [ 195000 , 570000 ] ,
-77  => [ 235000 , 570000 ] ,
-78  => [ 275000 , 580000 ] ,
-79  => [ 315000 , 580000 ] ,
-80  => [ 355000 , 580000 ] ,
-81  => [ 395000 , 580000 ] ,
-82  => [ 195000 , 530000 ] ,
-83  => [ 235000 , 530000 ] ,
-84  => [ 265000 , 540000 ] ,
-85  => [ 305000 , 540000 ] ,
-86  => [ 345000 , 540000 ] ,
-87  => [ 367000 , 540000 ] ,
-88  => [ 407000 , 540000 ] ,
-89  => [ 290000 , 500000 ] ,
-90  => [ 317000 , 500000 ] ,
-91  => [ 357000 , 500000 ] ,
-92  => [ 380000 , 500000 ] ,
-93  => [ 420000 , 500000 ] ,
-94  => [ 460000 , 485000 ] ,
-95  => [ 213000 , 465000 ] ,
-96  => [ 303000 , 460000 ] ,
-97  => [ 326000 , 460000 ] ,
-98  => [ 366000 , 460000 ] ,
-99  => [ 406000 , 460000 ] ,
-100 => [ 446000 , 460000 ] ,
-101 => [ 486000 , 460000 ] ,
-102 => [ 326000 , 420000 ] ,
-103 => [ 360000 , 420000 ] ,
-104 => [ 400000 , 420000 ] ,
-105 => [ 440000 , 420000 ] ,
-106 => [ 463000 , 420000 ] ,
-107 => [ 500000 , 420000 ] ,
-108 => [ 320000 , 380000 ] ,
-109 => [ 360000 , 380000 ] ,
-110 => [ 400000 , 380000 ] ,
-111 => [ 430000 , 380000 ] ,
-112 => [ 470000 , 385000 ] ,
-113 => [ 510000 , 386000 ] ,
-114 => [ 220000 , 360000 ] ,
-115 => [ 240000 , 345000 ] ,
-116 => [ 280000 , 345000 ] ,
-117 => [ 320000 , 340000 ] ,
-118 => [ 360000 , 340000 ] ,
-119 => [ 400000 , 340000 ] ,
-120 => [ 440000 , 350000 ] ,
-121 => [ 478000 , 350000 ] ,
-122 => [ 518000 , 350000 ] ,
-123 => [ 210000 , 320000 ] ,
-124 => [ 250000 , 305000 ] ,
-125 => [ 280000 , 305000 ] ,
-126 => [ 320000 , 300000 ] ,
-127 => [ 360000 , 300000 ] ,
-128 => [ 400000 , 308000 ] ,
-129 => [ 440000 , 310000 ] ,
-130 => [ 480000 , 310000 ] ,
-131 => [ 520000 , 310000 ] ,
-132 => [ 560000 , 310000 ] ,
-133 => [ 600000 , 310000 ] ,
-134 => [ 617000 , 290000 ] ,
-135 => [ 250000 , 265000 ] ,
-136 => [ 280000 , 265000 ] ,
-137 => [ 320000 , 260000 ] ,
-138 => [ 345000 , 260000 ] ,
-139 => [ 385000 , 268000 ] ,
-140 => [ 425000 , 270000 ] ,
-141 => [ 465000 , 270000 ] ,
-142 => [ 504000 , 274000 ] ,
-143 => [ 537000 , 274000 ] ,
-144 => [ 577000 , 270000 ] ,
-145 => [ 200000 , 220000 ] ,
-146 => [ 240000 , 225000 ] ,
-147 => [ 270000 , 240000 ] ,
-148 => [ 310000 , 240000 ] ,
-149 => [ 333000 , 228000 ] ,
-150 => [ 373000 , 228000 ] ,
-151 => [ 413000 , 230000 ] ,
-152 => [ 453000 , 230000 ] ,
-153 => [ 493000 , 234000 ] ,
-154 => [ 533000 , 234000 ] ,
-155 => [ 573000 , 234000 ] ,
-156 => [ 613000 , 250000 ] ,
-157 => [ 165000 , 201000 ] ,
-158 => [ 189000 , 190000 ] ,
-159 => [ 229000 , 185000 ] ,
-160 => [ 269000 , 205000 ] ,
-161 => [ 309000 , 205000 ] ,
-162 => [ 349000 , 188000 ] ,
-163 => [ 389000 , 190000 ] ,
-164 => [ 429000 , 190000 ] ,
-165 => [ 460000 , 195000 ] ,
-166 => [ 500000 , 194000 ] ,
-167 => [ 540000 , 194000 ] ,
-168 => [ 580000 , 194000 ] ,
-169 => [ 607000 , 210000 ] ,
-170 => [ 269000 , 165000 ] ,
-171 => [ 309000 , 165000 ] ,
-172 => [ 340000 , 155000 ] ,
-173 => [ 380000 , 155000 ] ,
-174 => [ 420000 , 155000 ] ,
-175 => [ 460000 , 155000 ] ,
-176 => [ 495000 , 160000 ] ,
-177 => [ 530000 , 160000 ] ,
-178 => [ 565000 , 155000 ] ,
-179 => [ 603000 , 133000 ] ,
-180 => [ 240000 , 112000 ] ,
-181 => [ 280000 , 112000 ] ,
-182 => [ 320000 , 130000 ] ,
-183 => [ 349000 , 115000 ] ,
-184 => [ 389000 , 115000 ] ,
-185 => [ 426000 , 116000 ] ,
-186 => [ 465000 , 125000 ] ,
-187 => [ 505000 , 125000 ] ,
-188 => [ 545000 , 125000 ] ,
-189 => [ 585000 , 115000 ] ,
-190 => [ 207000 ,  87000 ] ,
-191 => [ 247000 ,  72000 ] ,
-192 => [ 287000 ,  72000 ] ,
-193 => [ 310000 ,  90000 ] ,
-194 => [ 349000 ,  75000 ] ,
-195 => [ 389000 ,  75000 ] ,
-196 => [ 429000 ,  76000 ] ,
-197 => [ 469000 ,  90000 ] ,
-198 => [ 509000 ,  97000 ] ,
-199 => [ 549000 ,  94000 ] ,
-200 => [ 175000 ,  50000 ] ,
-201 => [ 215000 ,  47000 ] ,
-202 => [ 255000 ,  32000 ] ,
-203 => [ 132000 ,  11000 ] ,
-204 => [ 172000 ,  14000 ] ,
+my %LR = (
+      1 => [ 429_000, 1_179_000 ] ,
+      2 => [ 433_000, 1_156_000 ] ,
+      3 => [ 414_000, 1_147_000 ] ,
+      4 => [ 420_000, 1_107_000 ] ,
+      5 => [ 340_000, 1_020_000 ] ,
+      6 => [ 321_000,   996_000 ] ,
+      7 => [ 315_000,   970_000 ] ,
+      8 => [ 117_000,   926_000 ] ,
+      9 => [ 212_000,   940_000 ] ,
+     10 => [ 252_000,   940_000 ] ,
+     11 => [ 292_000,   929_000 ] ,
+     12 => [ 300_000,   939_000 ] ,
+     13 => [  95_000,   903_000 ] ,
+     14 => [ 105_000,   886_000 ] ,
+     15 => [ 196_000,   900_000 ] ,
+     16 => [ 236_000,   900_000 ] ,
+     17 => [ 276_000,   900_000 ] ,
+     18 => [  69_000,   863_000 ] ,
+     19 => [ 174_000,   860_000 ] ,
+     20 => [ 214_000,   860_000 ] ,
+     21 => [ 254_000,   860_000 ] ,
+     22 => [  57_000,   823_000 ] ,
+     23 => [ 113_000,   836_000 ] ,
+     24 => [ 150_000,   830_000 ] ,
+     25 => [ 190_000,   820_000 ] ,
+     26 => [ 230_000,   820_000 ] ,
+     27 => [ 270_000,   830_000 ] ,
+     28 => [ 310_000,   833_000 ] ,
+     29 => [ 345_000,   830_000 ] ,
+     30 => [ 377_000,   830_000 ] ,
+     31 => [  50_000,   783_000 ] ,
+     32 => [ 130_000,   800_000 ] ,
+     33 => [ 170_000,   790_000 ] ,
+     34 => [ 210_000,   780_000 ] ,
+     35 => [ 250_000,   790_000 ] ,
+     36 => [ 285_000,   793_000 ] ,
+     37 => [ 325_000,   793_000 ] ,
+     38 => [ 365_000,   790_000 ] ,
+     39 => [ 120_000,   770_000 ] ,
+     40 => [ 160_000,   760_000 ] ,
+     41 => [ 200_000,   750_000 ] ,
+     42 => [ 240_000,   750_000 ] ,
+     43 => [ 280_000,   760_000 ] ,
+     44 => [ 320_000,   760_000 ] ,
+     45 => [ 360_000,   760_000 ] ,
+     46 => [  92_000,   733_000 ] ,
+     47 => [ 120_000,   732_000 ] ,
+     48 => [ 120_000,   710_000 ] ,
+     49 => [ 160_000,   720_000 ] ,
+     50 => [ 200_000,   710_000 ] ,
+     51 => [ 240_000,   720_000 ] ,
+     52 => [ 270_000,   720_000 ] ,
+     53 => [ 294_000,   720_000 ] ,
+     54 => [ 334_000,   720_000 ] ,
+     55 => [ 164_000,   680_000 ] ,
+     56 => [ 204_000,   682_000 ] ,
+     57 => [ 244_000,   682_000 ] ,
+     58 => [ 284_000,   690_000 ] ,
+     59 => [ 324_000,   690_000 ] ,
+     60 => [ 110_000,   640_000 ] ,
+     61 => [ 131_000,   662_000 ] ,
+     62 => [ 160_000,   640_000 ] ,
+     63 => [ 200_000,   642_000 ] ,
+     64 => [ 240_000,   645_000 ] ,
+     65 => [ 280_000,   650_000 ] ,
+     66 => [ 316_000,   650_000 ] ,
+     67 => [ 356_000,   650_000 ] ,
+     68 => [ 157_000,   600_000 ] ,
+     69 => [ 175_000,   613_000 ] ,
+     70 => [ 215_000,   605_000 ] ,
+     71 => [ 255_000,   605_000 ] ,
+     72 => [ 280_000,   620_000 ] ,
+     73 => [ 320_000,   620_000 ] ,
+     74 => [ 357_000,   620_000 ] ,
+     75 => [ 390_000,   620_000 ] ,
+     76 => [ 195_000,   570_000 ] ,
+     77 => [ 235_000,   570_000 ] ,
+     78 => [ 275_000,   580_000 ] ,
+     79 => [ 315_000,   580_000 ] ,
+     80 => [ 355_000,   580_000 ] ,
+     81 => [ 395_000,   580_000 ] ,
+     82 => [ 195_000,   530_000 ] ,
+     83 => [ 235_000,   530_000 ] ,
+     84 => [ 265_000,   540_000 ] ,
+     85 => [ 305_000,   540_000 ] ,
+     86 => [ 345_000,   540_000 ] ,
+     87 => [ 367_000,   540_000 ] ,
+     88 => [ 407_000,   540_000 ] ,
+     89 => [ 290_000,   500_000 ] ,
+     90 => [ 317_000,   500_000 ] ,
+     91 => [ 357_000,   500_000 ] ,
+     92 => [ 380_000,   500_000 ] ,
+     93 => [ 420_000,   500_000 ] ,
+     94 => [ 460_000,   485_000 ] ,
+     95 => [ 213_000,   465_000 ] ,
+     96 => [ 303_000,   460_000 ] ,
+     97 => [ 326_000,   460_000 ] ,
+     98 => [ 366_000,   460_000 ] ,
+     99 => [ 406_000,   460_000 ] ,
+    100 => [ 446_000,   460_000 ] ,
+    101 => [ 486_000,   460_000 ] ,
+    102 => [ 326_000,   420_000 ] ,
+    103 => [ 360_000,   420_000 ] ,
+    104 => [ 400_000,   420_000 ] ,
+    105 => [ 440_000,   420_000 ] ,
+    106 => [ 463_000,   420_000 ] ,
+    107 => [ 500_000,   420_000 ] ,
+    108 => [ 320_000,   380_000 ] ,
+    109 => [ 360_000,   380_000 ] ,
+    110 => [ 400_000,   380_000 ] ,
+    111 => [ 430_000,   380_000 ] ,
+    112 => [ 470_000,   385_000 ] ,
+    113 => [ 510_000,   386_000 ] ,
+    114 => [ 220_000,   360_000 ] ,
+    115 => [ 240_000,   345_000 ] ,
+    116 => [ 280_000,   345_000 ] ,
+    117 => [ 320_000,   340_000 ] ,
+    118 => [ 360_000,   340_000 ] ,
+    119 => [ 400_000,   340_000 ] ,
+    120 => [ 440_000,   350_000 ] ,
+    121 => [ 478_000,   350_000 ] ,
+    122 => [ 518_000,   350_000 ] ,
+    123 => [ 210_000,   320_000 ] ,
+    124 => [ 250_000,   305_000 ] ,
+    125 => [ 280_000,   305_000 ] ,
+    126 => [ 320_000,   300_000 ] ,
+    127 => [ 360_000,   300_000 ] ,
+    128 => [ 400_000,   308_000 ] ,
+    129 => [ 440_000,   310_000 ] ,
+    130 => [ 480_000,   310_000 ] ,
+    131 => [ 520_000,   310_000 ] ,
+    132 => [ 560_000,   310_000 ] ,
+    133 => [ 600_000,   310_000 ] ,
+    134 => [ 617_000,   290_000 ] ,
+    135 => [ 250_000,   265_000 ] ,
+    136 => [ 280_000,   265_000 ] ,
+    137 => [ 320_000,   260_000 ] ,
+    138 => [ 345_000,   260_000 ] ,
+    139 => [ 385_000,   268_000 ] ,
+    140 => [ 425_000,   270_000 ] ,
+    141 => [ 465_000,   270_000 ] ,
+    142 => [ 504_000,   274_000 ] ,
+    143 => [ 537_000,   274_000 ] ,
+    144 => [ 577_000,   270_000 ] ,
+    145 => [ 200_000,   220_000 ] ,
+    146 => [ 240_000,   225_000 ] ,
+    147 => [ 270_000,   240_000 ] ,
+    148 => [ 310_000,   240_000 ] ,
+    149 => [ 333_000,   228_000 ] ,
+    150 => [ 373_000,   228_000 ] ,
+    151 => [ 413_000,   230_000 ] ,
+    152 => [ 453_000,   230_000 ] ,
+    153 => [ 493_000,   234_000 ] ,
+    154 => [ 533_000,   234_000 ] ,
+    155 => [ 573_000,   234_000 ] ,
+    156 => [ 613_000,   250_000 ] ,
+    157 => [ 165_000,   201_000 ] ,
+    158 => [ 189_000,   190_000 ] ,
+    159 => [ 229_000,   185_000 ] ,
+    160 => [ 269_000,   205_000 ] ,
+    161 => [ 309_000,   205_000 ] ,
+    162 => [ 349_000,   188_000 ] ,
+    163 => [ 389_000,   190_000 ] ,
+    164 => [ 429_000,   190_000 ] ,
+    165 => [ 460_000,   195_000 ] ,
+    166 => [ 500_000,   194_000 ] ,
+    167 => [ 540_000,   194_000 ] ,
+    168 => [ 580_000,   194_000 ] ,
+    169 => [ 607_000,   210_000 ] ,
+    170 => [ 269_000,   165_000 ] ,
+    171 => [ 309_000,   165_000 ] ,
+    172 => [ 340_000,   155_000 ] ,
+    173 => [ 380_000,   155_000 ] ,
+    174 => [ 420_000,   155_000 ] ,
+    175 => [ 460_000,   155_000 ] ,
+    176 => [ 495_000,   160_000 ] ,
+    177 => [ 530_000,   160_000 ] ,
+    178 => [ 565_000,   155_000 ] ,
+    179 => [ 603_000,   133_000 ] ,
+    180 => [ 240_000,   112_000 ] ,
+    181 => [ 280_000,   112_000 ] ,
+    182 => [ 320_000,   130_000 ] ,
+    183 => [ 349_000,   115_000 ] ,
+    184 => [ 389_000,   115_000 ] ,
+    185 => [ 429_000,   116_000 ] ,
+    186 => [ 465_000,   125_000 ] ,
+    187 => [ 505_000,   125_000 ] ,
+    188 => [ 545_000,   125_000 ] ,
+    189 => [ 585_000,   115_000 ] ,
+    190 => [ 207_000,    87_000 ] ,
+    191 => [ 247_000,    72_000 ] ,
+    192 => [ 287_000,    72_000 ] ,
+    193 => [ 310_000,    90_000 ] ,
+    194 => [ 349_000,    75_000 ] ,
+    195 => [ 389_000,    75_000 ] ,
+    196 => [ 429_000,    76_000 ] ,
+    197 => [ 469_000,    90_000 ] ,
+    198 => [ 509_000,    97_000 ] ,
+    199 => [ 549_000,    94_000 ] ,
+    200 => [ 175_000,    50_000 ] ,
+    201 => [ 215_000,    47_000 ] ,
+    202 => [ 255_000,    32_000 ] ,
+    203 => [ 132_000,    11_000 ] ,
+    204 => [ 172_000,    14_000 ] ,
 );
 
 sub format_grid_trad {
+    my $e = shift;
+    my $n = shift;
+    my $sq;
+
+    ($sq, $e, $n) = format_grid_GPS($e, $n);
+
     use integer;
-    my ($sq, $e, $n) = format_grid_GPS(@_);
     ($e,$n) = ($e/100,$n/100);
     return ($sq, $e, $n) if wantarray;
-    return sprintf "%s %03d %03d", $sq, $e, $n;
+    return sprintf '%s %03d %03d', $sq, $e, $n;
 }
 
 sub format_grid_GPS {
     my $e = shift;
     my $n = shift;
 
-    croak "Easting must not be negative" if $e<0;
-    croak "Northing must not be negative" if $n<0;
+    croak 'Easting must not be negative' if $e<0;
+    croak 'Northing must not be negative' if $n<0;
 
     # round to nearest metre
     ($e,$n) = map { $_+0.5 } ($e, $n);
     my $sq;
 
-    {
-        use integer;
-        $sq = sprintf "%s%s", _letter( 2 + $e/BIG_SQUARE         , 1+$n/BIG_SQUARE        ),
-                              _letter(($e % BIG_SQUARE ) / SQUARE, ( $n % BIG_SQUARE )/SQUARE );
+    my $great_square_index_east  = 2 + int $e/BIG_SQUARE;
+    my $great_square_index_north = 1 + int $n/BIG_SQUARE;
+    my $small_square_index_east  = int ($e%BIG_SQUARE)/SQUARE;
+    my $small_square_index_north = int ($n%BIG_SQUARE)/SQUARE;
 
-        ($e,$n) = map { $_ % SQUARE } ($e, $n);
-    }
+    my @grid = ( [ qw( V W X Y Z ) ],
+                 [ qw( Q R S T U ) ],
+                 [ qw( L M N O P ) ],
+                 [ qw( F G H J K ) ],
+                 [ qw( A B C D E ) ],
+               );
+
+    $sq = $grid[$great_square_index_north][$great_square_index_east]
+        . $grid[$small_square_index_north][$small_square_index_east];
+
+    ($e,$n) = map { $_ % SQUARE } ($e, $n);
 
     return ($sq, $e, $n) if wantarray;
-    return sprintf "%s %05d %05d", $sq, $e, $n;
+    return sprintf '%s %05d %05d', $sq, $e, $n;
 }
 
 sub format_grid_landranger {
-    use integer;
     my ($e,$n) = @_;
     my @sheets = ();
     for my $sheet (1..204) {
-        my $de = $e-$LR{$sheet}->[0];
-        my $dn = $n-$LR{$sheet}->[1];
-        push @sheets, $sheet if $de>=0 && $de < 40000
-                             && $dn>=0 && $dn < 40000;
+        my $e_difference = $e - $LR{$sheet}->[0];
+        my $n_difference = $n - $LR{$sheet}->[1];
+        if ( 0 <= $e_difference && $e_difference < LR_SHEET_SIZE
+          && 0 <= $n_difference && $n_difference < LR_SHEET_SIZE ) {
+            push @sheets, $sheet
+        }
     }
     my $sq;
     ($sq, $e, $n) = format_grid_trad($e,$n);
 
     return ($sq, $e, $n, @sheets) if wantarray;
 
-    return sprintf("%s %03d %03d is not on any OS Sheet", $sq, $e, $n) unless @sheets;
-    return sprintf("%s %03d %03d on OS Sheet %d"        , $sq, $e, $n, $sheets[0]) if 1==@sheets;
-    return sprintf("%s %03d %03d on OS Sheets %d and %d", $sq, $e, $n, @sheets)    if 2==@sheets;
-    return sprintf("%s %03d %03d on OS Sheets %s", $sq, $e, $n, join(', ', @sheets[0..($#sheets-1)], "and $sheets[-1]"));
+    if (!@sheets )    { return sprintf '%s %03d %03d is not on any OS Sheet', $sq, $e, $n }
+    if ( @sheets==1 ) { return sprintf '%s %03d %03d on OS Sheet %d'        , $sq, $e, $n, $sheets[0] }
+    if ( @sheets==2 ) { return sprintf '%s %03d %03d on OS Sheets %d and %d', $sq, $e, $n, @sheets }
+
+    my $phrase = join ', ', @sheets[0..($#sheets-1)], "and $sheets[-1]";
+    return sprintf '%s %03d %03d on OS Sheets %s', $sq, $e, $n, $phrase;
 
 }
 
-sub _letter {
-    my $x = shift;
-    my $y = shift;
-    die "Argument out of range in _letter\n"
-        unless defined $x && $x=~/^\d+$/ && $x>=0 && $x<5
-            && defined $y && $y=~/^\d+$/ && $y>=0 && $y<5;
-
-    return $Grid[$y][$x];
-}
-
+my $SHORT_GRID_REF = qr{ \A ([GHJMNORST][A-Z]) \s? (\d{1,3}) \D? (\d{1,3}) \Z }smiox;
+my $LONG_GRID_REF  = qr{ \A ([GHJMNORST][A-Z]) \s? (\d{4,5}) \D? (\d{4,5}) \Z }smiox;
 
 sub parse_grid {
-    my $s = shift;
-    return parse_trad_grid($s) if $s =~ $GR_Pattern;
-    return parse_GPS_grid($s)  if $s =~ $Long_GR_Pattern;
-    return parse_landranger_grid($1, $2, $3) if $s =~ $LR_Pattern;
-    return parse_landranger_grid($s) if $s =~ /^\d{1,3}$/ && $s < 205;
+    my $s = "@_";
+    if ( $s =~ $SHORT_GRID_REF ) {
+        return _parse_grid($1, $2*100, $3*100)
+    }
+    if ( $s =~ $LONG_GRID_REF ) {
+        return _parse_grid($1, $2, $3)
+    }
+    if ( $s =~ m{\A (\d{1,3}) \D+ (\d{3}) \D? (\d{3}) \Z}xsm ) { # sheet/eee/nnn etc
+        return parse_landranger_grid($1, $2, $3)
+    }
+    if ( $s =~ m{\A \d{1,3} \Z}xsm && $s < 205 ) {  # just a landranger sheet
+        return parse_landranger_grid($s)
+    }
     croak "$s <-- this does not match my grid ref patterns";
-    return
 }
 
 sub parse_trad_grid {
-    my ($letters, $e, $n);
-    if    ( @_ == 1 && $_[0] =~ $GR_Pattern ) {
-        ($letters, $e, $n) = ($1,$2,$3)
-    }
-    elsif ( @_ == 2 && $_[0] =~ $GSq_Pattern && $_[1] =~ /^(\d{3})(\d{3})$/ ) {
-        $letters = $_[0]; ($e, $n) = ($1,$2)
-    }
-    elsif ( @_ == 3 && $_[0] =~ $GSq_Pattern && $_[1] =~ /^\d{1,3}$/
-                                             && $_[2] =~ /^\d{1,3}$/ ) {
-        ($letters, $e, $n) = @_
-    }
-    else { croak "Cannot parse @_ as a traditional grid reference"; }
+    my $gr = "@_";
+    if ( $gr =~ $SHORT_GRID_REF  ) { return _parse_grid($1, $2*100, $3*100) }
 
-    return _parse_grid($letters, $e*100, $n*100)
+    croak "Cannot parse @_ as a traditional grid reference";
 }
 
 sub parse_GPS_grid {
-    my ($letters, $e, $n);
-    if    ( @_ == 1 && $_[0] =~ $Long_GR_Pattern ) {
-        ($letters, $e, $n) = ($1,$2,$3)
-    }
-    elsif ( @_ == 2 && $_[0] =~ $GSq_Pattern && $_[1] =~ /^(\d{5})(\d{5})$/ ) {
-        $letters = $_[0]; ($e, $n) = ($1,$2)
-    }
-    elsif ( @_ == 3 && $_[0] =~ $GSq_Pattern && $_[1] =~ /^\d{5}$/ && $_[2] =~ /^\d{5}$/ ) {
-        ($letters, $e, $n) = @_
-    }
-    else { croak "Cannot parse @_ as a GPS-style grid reference"; }
+    my $gr = "@_";
+    if ( $gr =~ $LONG_GRID_REF  ) { return _parse_grid($1, $2, $3) }
 
-    return _parse_grid($letters, $e, $n)
+    croak "Cannot parse @_ as a GPS grid reference";
 }
 
 sub _parse_grid {
-    return unless defined wantarray;
-
     my ($letters, $e, $n) = @_;
-    $letters = uc($letters);
 
-    my $c = substr($letters,0,1);
-    $e += $Big_off{$c}->{E}*BIG_SQUARE;
-    $n += $Big_off{$c}->{N}*BIG_SQUARE;
+    return if !defined wantarray;
 
-    my $d = substr($letters,1,1);
-    $e += $Small_off{$d}->{E}*SQUARE;
-    $n += $Small_off{$d}->{N}*SQUARE;
+    $letters = uc $letters;
+
+    my $c = substr $letters,0,1;
+    $e += $BIG_OFF{$c}->{E}*BIG_SQUARE;
+    $n += $BIG_OFF{$c}->{N}*BIG_SQUARE;
+
+    my $d = substr $letters,1,1;
+    $e += $SMALL_OFF{$d}->{E}*SQUARE;
+    $n += $SMALL_OFF{$d}->{N}*SQUARE;
 
     return ($e,$n);
 }
 
 
-sub _get_en {
-    my $e = shift || croak "You need to supply a grid reference";
-    my $n = shift;
-    if ( $e =~ /^(\d{3})(\d{3})$/ && not defined $n  ) { return ($1*100, $2*100) }
-    if ( $e =~ /^\d{3}$/          && $n =~ /^\d{3}$/ ) { return ($e*100, $n*100) }
-    if ( $e =~ /^\d{4}$/          && $n =~ /^\d{4}$/ ) { return ($e*10,  $n*10 ) }
-    if ( $e =~ /^\d{5}$/          && $n =~ /^\d{5}$/ ) { return ($e*1,   $n*1  ) }
-    croak "I was expecting a grid reference, not this: @_";
-}
-
-
 sub parse_landranger_grid {
+    my ($sheet, $e, $n) = @_;
 
-    return unless defined wantarray;
+    return if !defined wantarray;
 
-    my $sheet = shift;
-
-    croak "You need to supply an OS Sheet number" unless defined $sheet;
-    croak "I do not know the OS Sheet number ($sheet) that you have given"
-    unless defined $LR{$sheet};
-
-    unless (@_) {
-        return wantarray ? @{$LR{$sheet}} : format_grid_trad(@{$LR{$sheet}});
-    }
+    if ( !defined $sheet )      { croak 'Missing OS Sheet number'  }
+    if ( !defined $LR{$sheet} ) { croak "Unknown OS Sheet number ($sheet)" }
+    if ( !defined $e )          { return wantarray ? @{$LR{$sheet}} : format_grid_trad(@{$LR{$sheet}}) }
+    if ( !defined $n )          { $n = -1 }
 
     use integer;
 
-    my ($e,$n) = &_get_en; # convert grid refs to metres
-
-    my ($lle,$lln) = @{$LR{$sheet}};
-
-    # offset from start, corrected if we are in the next 100km sq
-    my $offset = $e - $lle%100_000 ; $offset += 100_000 if $offset < 0;
-
-    if ( $offset >= 40_000 ) {
-        croak sprintf "The easting you have given is %.1f km east of Sheet %s", $offset/1000-40, $sheet;
-    }
-    elsif ( $offset < 0 ) {
-        croak sprintf "The easting you have given is %.1f km west of Sheet %s", abs($offset/1000), $sheet;
-    }
-    else {
-        $e = $lle + $offset;
+    SWITCH: {
+        if ( $e =~ m{\A (\d{3}) (\d{3}) \Z}x && $n == -1 ) { ($e, $n) = ($1*100, $2*100) ; last SWITCH }
+        if ( $e =~ m{\A\d{3}\Z}x && $n =~ m{\A\d{3}\Z}x )  { ($e, $n) = ($e*100, $n*100) ; last SWITCH }
+        if ( $e =~ m{\A\d{5}\Z}x && $n =~ m{\A\d{5}\Z}x )  { ($e, $n) = ($e*1,   $n*1  ) ; last SWITCH }
+        croak "I was expecting a grid reference, not this: @_";
     }
 
-    # now the same for the northing
-    $offset = $n - $lln%100_000 ; $offset += 100_000 if $offset < 0;
-    if ( $offset >= 40_000 ) {
-        croak sprintf "The northing you have given is %.1f km north of Sheet %s", $offset/1000-40, $sheet;
-    }
-    elsif ( $offset < 0 ) {
-        croak sprintf "The northing you have given is %.1f km south of Sheet %s", abs($offset/1000), $sheet;
-    }
-    else {
-        $n = $lln + $offset;
+    my $full_easting  = _lr_to_full_grid($LR{$sheet}->[0], $e);
+    my $full_northing = _lr_to_full_grid($LR{$sheet}->[1], $n);
+
+    return ($full_easting, $full_northing)
+}
+
+sub _lr_to_full_grid {
+    my ($lower_left_offset, $in_square_offset) = @_;
+
+    my $lower_left_in_square = $lower_left_offset % 100_000;
+
+    my $distance_from_lower_left = $in_square_offset - $lower_left_in_square;
+    if ( $distance_from_lower_left < 0 ) {
+        $distance_from_lower_left += 100_000;
     }
 
-    return ($e, $n);
+    if ( $distance_from_lower_left < 0 || $distance_from_lower_left >= LR_SHEET_SIZE ) {
+        croak 'Grid reference not on sheet';
+    }
 
+    return $lower_left_offset + $distance_from_lower_left;
 }
 
 sub parse_ISO_ll {
-    return unless defined wantarray;
-    my $ISO_string = shift;
+    my $iso_string = shift;
+    return if !defined wantarray;
 
-    croak "I can't parse  an ISO 6709 lat/lon string from your input ($ISO_string)" unless
     my ($lat_sign, $lat_ip, $lat_fp,
-        $lon_sign, $lon_ip, $lon_fp, $alt ) = $ISO_string =~ m{$ISO_LL_Pattern};
+        $lon_sign, $lon_ip, $lon_fp, $alt ) = $iso_string =~ $ISO_LL_PATTERN;
 
-    my $l_lat = length($lat_ip);
-    my $l_lon = length($lon_ip);
-    croak "Not ISO 6709 string: $ISO_string" unless $l_lat%2==0 && $l_lon%2==1; # (2,4,6) + (3,5,7)
-    croak "Bad ISO 6709 string: $ISO_string" unless $l_lon-$l_lat == 1; # (2,3) (4,5) or (6,7)
+    if (! defined $lat_ip ) { croak "I can't parse an ISO 6709 lat/lon string from your input ($iso_string)" }
+
+    # now check the integer parts are sensible lengths
+    my $l_lat = length $lat_ip;
+    my $l_lon = length $lon_ip;
+    if ( $l_lat%2==1)       { croak "Bad latitude in ISO 6709 string: $iso_string" }   # must be even
+    if ( $l_lon%2==0)       { croak "Bad longitude in ISO 6709 string: $iso_string" }  # must be odd
+    if ( $l_lon-$l_lat!=1 ) { croak "Latitude and longitude values don't match: $iso_string" } # must differ by 1
 
     my ($lat, $lon) = (0,0);
-    $lat_fp = (defined $lat_fp) ? ".$lat_fp" : '';
-    $lon_fp = (defined $lon_fp) ? ".$lon_fp" : '';
-    if    ( $l_lat == 2 ) {
+    $lat_fp = (defined $lat_fp) ? ".$lat_fp" : q{};
+    $lon_fp = (defined $lon_fp) ? ".$lon_fp" : q{};
+    if ( $l_lat == 2 ) {
         $lat = $lat_ip.$lat_fp;
         $lon = $lon_ip.$lon_fp;
     }
@@ -654,8 +641,8 @@ sub parse_ISO_ll {
         $lon = substr($lon_ip,0,3) + substr($lon_ip,3,2)/60 + ( substr($lon_ip,5,2) . $lon_fp )/3600;
     }
 
-    croak "Latitude cannot exceed 90 degrees"   if $lat > 90;
-    croak "Longitude cannot exceed 180 degrees" if $lon > 180;
+    croak 'Latitude cannot exceed 90 degrees'   if $lat > 90;
+    croak 'Longitude cannot exceed 180 degrees' if $lon > 180;
 
     $lat = $lat_sign . $lat;
     $lon = $lon_sign . $lon;
@@ -665,16 +652,16 @@ sub parse_ISO_ll {
 }
 
 #     Latitude and Longitude in Degrees:
-#         ±DD.DDDD±DDD.DDDD/         (eg +12.345-098.765/)
+#         Â±DD.DDDDÂ±DDD.DDDD/         (eg +12.345-098.765/)
 #      Latitude and Longitude in Degrees and Minutes:
-#         ±DDMM.MMMM±DDDMM.MMMM/     (eg +1234.56-09854.321/)
+#         Â±DDMM.MMMMÂ±DDDMM.MMMM/     (eg +1234.56-09854.321/)
 #      Latitude and Longitude in Degrees, Minutes and Seconds:
-#         ±DDMMSS.SSSS±DDDMMSS.SSSS/ (eg +123456.7-0985432.1/)
+#         Â±DDMMSS.SSSSÂ±DDDMMSS.SSSS/ (eg +123456.7-0985432.1/)
 #
 #   where:
 #
-#        ±DD   = three-digit integer degrees part of latitude (through -90 ~ -00 ~ +90)
-#        ±DDD  = four-digit integer degrees part of longitude (through -180 ~ -000 ~ +180)
+#        Â±DD   = three-digit integer degrees part of latitude (through -90 ~ -00 ~ +90)
+#        Â±DDD  = four-digit integer degrees part of longitude (through -180 ~ -000 ~ +180)
 #        MM    = two-digit integer minutes part (00 through 59)
 #        SS    = two-digit integer seconds part (00 through 59)
 #        .DDDD = variable-length fraction part in degrees
@@ -694,15 +681,15 @@ sub parse_ISO_ll {
 #
 #   Altitude can be added optionally.
 #      Latitude, Longitude (in Degrees) and Altitude:
-#         ±DD.DDDD±DDD.DDDD±AAA.AAA/         (eg +12.345-098.765+15.9/)
+#         Â±DD.DDDDÂ±DDD.DDDDÂ±AAA.AAA/         (eg +12.345-098.765+15.9/)
 #      Latitude, Longitude (in Degrees and Minutes) and Altitude:
-#         ±DDMM.MMMM±DDDMM.MMMM±AAA.AAA/     (eg +1234.56-09854.321+15.9/)
+#         Â±DDMM.MMMMÂ±DDDMM.MMMMÂ±AAA.AAA/     (eg +1234.56-09854.321+15.9/)
 #      Latitude, Longitude (in Degrees, Minutes and Seconds) and Altitude:
-#         ±DDMMSS.SSSS±DDDMMSS.SSSS±AAA.AAA/ (eg +123456.7-0985432.1+15.9/)
+#         Â±DDMMSS.SSSSÂ±DDDMMSS.SSSSÂ±AAA.AAA/ (eg +123456.7-0985432.1+15.9/)
 #
 #   where:
 #
-#        ±AAA.AAA = variable-length altitude in meters [m].
+#        Â±AAA.AAA = variable-length altitude in meters [m].
 #
 #        * The unit of altitude is meter [m].
 #        * The integer part and the fraction part of altitude are both variable-length.
@@ -710,49 +697,48 @@ sub parse_ISO_ll {
 
 
 sub format_ll_trad {
-    return unless defined wantarray;
     my ($lat, $lon) = @_;
     my ($lad, $lam, $las, $is_north) = _dms($lat); my $lah = $is_north ? 'N' : 'S';
     my ($lod, $lom, $los, $is_east ) = _dms($lon); my $loh = $is_east  ? 'E' : 'W';
-    return ($lah, $lad, $lam, $las, $loh, $lod, $lom, $los) if wantarray;
-    return sprintf("%s%d:%02d:%02d %s%d:%02d:%02d", $lah, $lad, $lam, $las, $loh, $lod, $lom, $los);
+
+    if (! defined wantarray ) { return }
+    if ( wantarray )          { return ($lah, $lad, $lam, $las, $loh, $lod, $lom, $los) }
+    return sprintf '%s%d:%02d:%02d %s%d:%02d:%02d', $lah, $lad, $lam, $las, $loh, $lod, $lom, $los;
 }
 
 sub _dms {
     my $dd = shift;
     my $is_positive = ($dd>=0);
-    $dd = abs($dd);
-    my $d = int($dd);     $dd = $dd-$d;
-    my $m = int($dd*60);  $dd = $dd-$m/60;
+    $dd = abs $dd;
+    my $d = int $dd;     $dd = $dd-$d;
+    my $m = int $dd*60;  $dd = $dd-$m/60;
     my $s = $dd*3600;
     return $d, $m, $s, $is_positive;
 }
 
 sub format_ll_ISO {
-    return unless defined wantarray;
     my ($lat, $lon, $option) = @_;
+    return if !defined wantarray;
 
     my ($lasign, $lad, $lam, $las) = _get_sdms($lat);
     my ($losign, $lod, $lom, $los) = _get_sdms($lon);
 
-    # return rounded to nearest minute unless we ask for more accuracy
+    # return d m and s if specifically requested with "SECONDS" option
     if (defined $option && (uc($option) eq 'SECONDS')) {
-        return ($lasign, $lad, $lam, $las, $losign, $lod, $lom, $los) if wantarray;
-        return sprintf("%s%02d%02d%02d%s%03d%02d%02d/", $lasign, $lad, $lam, $las, $losign, $lod, $lom, $los);
+        if (wantarray) {                        return ($lasign, $lad, $lam, $las, $losign, $lod, $lom, $los) }
+        return sprintf '%s%02d%02d%02d%s%03d%02d%02d/', $lasign, $lad, $lam, $las, $losign, $lod, $lom, $los;
     }
 
+    # otherwise round up to nearest minute
     ($lad, $lam) = _round_up($lad, $lam, $las);
     ($lod, $lom) = _round_up($lod, $lom, $los);
 
-
-
-    return ($lasign ,$lad, $lam, $losign, $lod, $lom) if wantarray;
-    return sprintf("%s%02d%02d%s%03d%02d/", $lasign ,$lad, $lam, $losign, $lod, $lom);
+    if (wantarray) {                return ($lasign ,$lad, $lam, $losign, $lod, $lom) }
+    return sprintf '%s%02d%02d%s%03d%02d/', $lasign, $lad, $lam, $losign, $lod, $lom;
 }
 
 sub _round_up {
     my ($d, $m, $s) = @_;
-    return unless defined wantarray;
     return ($d, $m) if $s<30;
 
     $m++;
@@ -765,15 +751,15 @@ sub _round_up {
 
 sub _get_sdms {
     my $r = shift;
-    return unless defined wantarray;
+    return if !defined wantarray;
 
-    my $sign = $r>=0 ? '+' : '-';
-    $r = abs($r);
-    my $deg = int($r);
+    my $sign = $r>=0 ? q{+} : q{-};
+    $r = abs $r;
+    my $deg = int $r;
     my $exact_minutes = 60*($r-$deg);
-    my $whole_minutes = int($exact_minutes);
+    my $whole_minutes = int $exact_minutes;
     my $exact_seconds = 60 * ($exact_minutes-$whole_minutes);
-    my $whole_seconds = int(0.5+$exact_seconds);
+    my $whole_seconds = int 0.5+$exact_seconds;
     if ( $whole_seconds > 59) {
         $whole_minutes++;
         $whole_seconds=0;
@@ -787,14 +773,15 @@ sub _get_sdms {
 
 my %parameters_for_datum = (
 
-    "OSGB36" => [ 573.604, 0.119600236/10000, 375, -111, 431 ],
-    "OSGM02" => [ 573.604, 0.119600236/10000, 375, -111, 431 ],
+    'OSGB36' => [ 573.604, 0.119600236/10000, 375, -111, 431 ],
+    'OSGM02' => [ 573.604, 0.119600236/10000, 375, -111, 431 ],
 
     );
 
 sub shift_ll_from_WGS84 {
 
-    my ($lat, $lon, $elevation) = (@_, 0);
+    my ($lat, $lon, $elevation) = @_;
+    if ( ! defined $elevation ) { $elevation = 0 }
 
     my $parameter_ref = $parameters_for_datum{'OSGM02'};
     my $target_da = -1 * $parameter_ref->[0];
@@ -813,7 +800,8 @@ sub shift_ll_from_WGS84 {
 }
 
 sub shift_ll_into_WGS84 {
-    my ($lat, $lon, $elevation) = (@_, 0);
+    my ($lat, $lon, $elevation) = @_;
+    if ( ! defined $elevation ) { $elevation = 0 }
 
     my $parameter_ref = $parameters_for_datum{'OSGM02'};
     my $target_da = $parameter_ref->[0];
@@ -832,7 +820,7 @@ sub shift_ll_into_WGS84 {
 }
 
 sub _transform {
-    return unless defined wantarray;
+    return if !defined wantarray;
 
     my $lat = shift;
     my $lon = shift;
@@ -855,27 +843,28 @@ sub _transform {
     my $b_a      = 1 - $from_f;
     my $e_sq     = $from_f*(2-$from_f);
     my $ecc      = 1 - $e_sq*$sin_lat*$sin_lat;
+    my $secc     = sqrt $ecc;
 
-    my $Rn       = $from_a / sqrt($ecc);
-    my $Rm       = $from_a * (1-$e_sq) / ($ecc*sqrt($ecc));
+    my $rn       = $from_a / $secc;
+    my $rm       = $from_a * (1-$e_sq) / ($ecc*$secc);
 
     my $d_lat = ( - $dx*$sin_lat*$cos_lon
                   - $dy*$sin_lat*$sin_lon
                   + $dz*$cos_lat
-                  + $da*($Rn*$e_sq*$sin_lat*$cos_lat)/$from_a
-                  + $df*($Rm/$b_a + $Rn*$b_a)*$sin_lat*$cos_lat
-                ) / ($Rm + $elev);
+                  + $da*($rn*$e_sq*$sin_lat*$cos_lat)/$from_a
+                  + $df*($rm/$b_a + $rn*$b_a)*$sin_lat*$cos_lat
+                ) / ($rm + $elev);
 
 
     my $d_lon = ( - $dx*$sin_lon
                   + $dy*$cos_lon
-                ) / (($Rn+$elev)*$cos_lat);
+                ) / (($rn+$elev)*$cos_lat);
 
     my $d_elev = + $dx*$cos_lat*$cos_lon
                  + $dy*$cos_lat*$sin_lon
                  + $dz*$sin_lat
-                 - $da*$from_a/$Rn
-                 + $df*$b_a*$Rn*$sin_lat*$sin_lat;
+                 - $da*$from_a/$rn
+                 + $df*$b_a*$rn*$sin_lat*$sin_lat;
 
     my ($new_lat, $new_lon, $new_elev) = (
          $lat + $d_lat * DAR,
@@ -884,12 +873,14 @@ sub _transform {
        );
 
     return ($new_lat, $new_lon, $new_elev) if wantarray;
-    return sprintf "%s, (%s m)", format_ll_ISO($new_lat, $new_lon), $new_elev;
+    return sprintf '%s, (%s m)', format_ll_ISO($new_lat, $new_lon), $new_elev;
 
 }
 
 1;
+
 __END__
+
 
 =head1 NAME
 
@@ -926,6 +917,10 @@ neither the Channel Islands nor Northern Ireland.  The coverage that is
 included is essentially the same as the coverage provided by the OSGB
 "Landranger" 1:50000 series maps.
 
+=head1 VERSION
+
+Examine $Geo::Coordinates::OSGB::VERSION for details.
+
 =head1 SYNOPSIS
 
   use Geo::Coordinates::OSGB qw(ll_to_grid grid_to_ll);
@@ -953,7 +948,7 @@ elsewhere but you would need to adapt it.  Some starting points for doing this
 are explained in the L<Theory> section below.
 
 
-=head1 FUNCTIONS
+=head1 SUBROUTINES/METHODS
 
 The following functions can be exported from the C<Geo::Coordinates::OSGB>
 module:
@@ -998,7 +993,7 @@ Or you can use a single string in ISO 6709 form, like this:
     my ($e,$n) = ll_to_grid('+5130-00005/');
 
 To learn exactly what is matched by this last option, read the source of the module and look for the
-definition of C<$ISO_LL_Pattern>.  Note that the neither the C<+> or C<-> signs at the
+definition of C<$ISO_LL_PATTERN>.  Note that the neither the C<+> or C<-> signs at the
 beginning and in the middle, nor the trailing C</> may be omitted.
 
 If you have trouble remembering the order of the arguments, note that
@@ -1134,10 +1129,12 @@ outside the formal margin).
 
 =item parse_grid(grid_ref)
 
-Attempts to match a grid reference some form or other
-in the input string and will then call the appropriate grid
-parsing routine from those defined above.  In particular it will parse strings in the form
-C<'176-345210'> meaning grid ref 345 210 on sheet 176, as well as C<'TQ345210'> and C<'TQ 34500 21000'> etc.
+Attempts to match a grid reference some form or other in the input string
+and will then call the appropriate grid parsing routine from those defined
+above.  In particular it will parse strings in the form C<'176-345210'>
+meaning grid ref 345 210 on sheet 176, as well as C<'TQ345210'> and C<'TQ
+34500 21000'> etc.  You can in fact always use "parse_grid" instead of the more
+specific routines unless you need to be picky about the input.
 
 =item grid_to_ll(e,n) or grid_to_ll(grid_ref)
 
@@ -1181,7 +1178,7 @@ In a void context it does nothing.
 
 Reads an ISO 6709 formatted location identifier string such as '+5212-00230/'.
 To learn exactly what is matched by this last option, read the source of the module and look for the
-definition of C<$ISO_LL_Pattern>.  Note that the neither the C<+> or C<-> signs at the
+definition of C<$ISO_LL_PATTERN>.  Note that the neither the C<+> or C<-> signs at the
 beginning and in the middle, nor the trailing C</> may be omitted.  These strings can also include
 the altitude of a point, in metres, like this: '+5212-00230+140/'.  If you omit the altitude, 0 is assumed.
 
@@ -1226,6 +1223,7 @@ L<Geo::Coordinates::OSTN02> modules.
 
 =back
 
+
 =head1 THEORY
 
 The algorithms and theory for these conversion routines are all from
@@ -1246,11 +1244,11 @@ may be more suitable (which are referenced in the L<See Also> section), but
 the key parameters are all defined at the top of the module.
 
     $ellipsoid_shapes{OSGB36} = [ 6377563.396,  6356256.910  ];
-    use constant LAM0 => RAD * -2;  # lon of grid origin
-    use constant PHI0 => RAD * 49;  # lat of grid origin
-    use constant E0   =>  400000;   # Easting for origin
-    use constant N0   => -100000;   # Northing for origin
-    use constant F0   => 0.9996012717; # Convergence factor
+    use constant ORIGIN_LONGITUDE   => RAD * -2;  # lon of grid origin
+    use constant ORIGIN_LATITUDE    => RAD * 49;  # lat of grid origin
+    use constant ORIGIN_EASTING     =>  400000;   # Easting for origin
+    use constant ORIGIN_NORTHING    => -100000;   # Northing for origin
+    use constant CONVERGENCE_FACTOR => 0.9996012717; # Convergence factor
 
 The ellipsoid model is defined by two numbers that represent the major and
 minor radius measured in metres.  The Mercator grid projection is then
@@ -1259,27 +1257,28 @@ suitable point to start the grid that minimizes the inevitable distortion
 that is involved in a Mercator projection from spherical to Euclidean
 coordinates.  Such a point should be on a meridian that bisects the area of
 interest and is nearer to the equator than the whole area.  So for Britain
-the point of origin is 2°W and 49°N (in the OSGB geoid model) which is near
-the Channel Islands.  This point should be set as the C<LAM0> and C<PHI0>
-parameters (as above) measured in radians.  Having this True Point of Origin
-in the middle and below (or above if you are antipodean) minimizes
-distortion but means that some of the grid values would be negative unless
-you then also adjust the grid to make sure you do not get any negative
-values in normal use.  This is done by defining the grid coordinates of the
-True Point of Origin to be such that all the coordinates in the area of
-interest will be positive.  These are the parameters C<E0> and C<N0>.
-For Britain the coordinates are set as 400000 and -100000, so the that point
-(0,0) in the grid is just to the south west of the Scilly Isles.  This (0,0)
-point is called the False Point of Origin.  The fifth parameter affects the
+the point of origin is 2Â°W and 49Â°N (in the OSGB geoid model) which is near
+the Channel Islands.  This point should be set as the C<ORIGIN_LONGITUDE>
+and C<ORIGIN_LATITUDE> parameters (as above) measured in radians.  Having
+this True Point of Origin in the middle and below (or above if you are
+antipodean) minimizes distortion but means that some of the grid values
+would be negative unless you then also adjust the grid to make sure you do
+not get any negative values in normal use.  This is done by defining the
+grid coordinates of the True Point of Origin to be such that all the
+coordinates in the area of interest will be positive.  These are the
+parameters C<ORIGIN_EASTING> and C<ORIGIN_NORTHING>.  For Britain the
+coordinates are set as 400000 and -100000, so the that point (0,0) in the
+grid is just to the south west of the Scilly Isles.  This (0,0) point is
+called the False Point of Origin.  The fifth parameter affects the
 convergence of the Mercator projection as you get nearer the pole; this is
-another feature designed to minimize distortion, and if in doubt set it to
-1 (which means it has no effect).  For Britain, being so northerly it is set
+another feature designed to minimize distortion, and if in doubt set it to 1
+(which means it has no effect).  For Britain, being so northerly it is set
 to slightly less than 1.
 
 =head2 The British National Grid
 
 One consequence of the True Point of Origin of the British Grid being set to
-C<+4900-00200/> is that all the vertical grid lines are parallel to the 2°W
+C<+4900-00200/> is that all the vertical grid lines are parallel to the 2Â°W
 meridian; you can see this on the appropriate OS maps (for example
 Landranger sheet 184), or on the C<plotmaps.pdf> picture supplied with this
 package.  The effect of moving the False Point of Origin to the far south
@@ -1389,7 +1388,7 @@ fledgling global positioning system (GPS).  This model is known as WGS84, and
 is designed to be a compromise model that works equally well for all parts of
 the globe (or equally poorly depending on your point of view --- for one
 thing WGS84 defines the Greenwich observatory in London to be not quite on
-the 0° meridian).  Nevertheless WGS84 has grown in importance as GPS systems
+the 0Â° meridian).  Nevertheless WGS84 has grown in importance as GPS systems
 have become consumer items and useful global mapping tools (such as Google
 Earth) have become freely available through the Internet.  Most latitude and
 longitude coordinates quoted on the Internet (for example in Wikipedia) are
@@ -1480,17 +1479,17 @@ C<grid_to_ll()> with the WGS84 parameter to get WGS84 lat/long coordinates.
   ($sq, $e, $n) = format_grid_trad($e, $n); # ('TQ', 234, 98)
 
   # parse routines to convert from these formats to full e,n
-  ($e,$n) = parse_trad_grid('TQ 234 098');
-  ($e,$n) = parse_trad_grid('TQ234098'); # spaces optional
-  ($e,$n) = parse_trad_grid('TQ',234,98); # or even as a list
-  ($e,$n) = parse_GPS_grid('TQ 23451 09893'); # as above..
+  ($e,$n) = parse_grid('TQ 234 098');
+  ($e,$n) = parse_grid('TQ234098'); # spaces optional
+  ($e,$n) = parse_grid('TQ',234,98); # or even as a list
+  ($e,$n) = parse_grid('TQ 23451 09893'); # as above..
 
   # You can also get grid refs from individual maps.
   # Sheet between 1..204; gre & grn must be 3 or 5 digits long
-  ($e,$n) = parse_landranger_grid(176,123,994);
+  ($e,$n) = parse_grid(176,123,994);
 
   # With just the sheet number you get GR for SW corner
-  ($e,$n) = parse_landranger_grid(184);
+  ($e,$n) = parse_grid(184);
 
   # Reading and writing lat/lon coordinates
   ($lat, $lon) = parse_ISO_ll("+52-002/");
@@ -1498,7 +1497,7 @@ C<grid_to_ll()> with the WGS84 parameter to get WGS84 lat/long coordinates.
   $str = format_ll_trad($lat,$lon);   # "N52:00:00 W002:00:00"
 
 
-=head1 BUGS
+=head1 BUGS AND LIMITATIONS
 
 The conversions are only approximate.   So after
 
@@ -1523,10 +1522,37 @@ Not enough testing has been done.  I am always grateful for the feedback I
 get from users, but especially for problem reports that help me to make this
 a better module.
 
+=head1 DIAGNOSTICS
+
+Should this software not do what you expect, then please first read this documentation,
+secondly verify that you have installed it correctly and that it passes all the installation tests on your set up,
+thirdly study the source code to see what it's supposed to be doing, fourthly get in touch to ask me about it.
+
+=head1 CONFIGURATION AND ENVIRONMENT
+
+There is no configuration required either of these modules or your environment. It should work on any recent version of
+perl, on any platform.
+
+=head1 DEPENDENCIES
+
+None.
+
+=head1 INCOMPATIBILITIES
+
+None known.
+
+=head1 LICENSE AND COPYRIGHT
+
+Copyright (C) 2002-2013 Toby Thurston
+
+OSTN02 transformation data is freely available but remains Crown Copyright (C) 2002
+
+This library is free software; you can redistribute it and/or modify
+it under the same terms as Perl itself.
 
 =head1 AUTHOR
 
-Toby Thurston ---  6 Nov 2008
+Toby Thurston -- 13 Aug 2013 
 
 toby@cpan.org
 
@@ -1534,8 +1560,7 @@ toby@cpan.org
 
 The UK Ordnance Survey's theory paper referenced above in L<Theory>.
 
-See L<Geo::Coordinates::Convert> for a general approach (not based on the above
-paper).
+See L<Geo::Coordinates::Convert> for a general approach (not based on the above paper).
 
 See L<Geo::Coordinates::Lambert> for a French approach.
 

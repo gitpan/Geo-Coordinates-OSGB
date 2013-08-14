@@ -19,10 +19,9 @@ warn "**************************************************************************
 # and translate to ll WGS84
 
 # write KML header
-# for each square write a polygon into the
+# for each square write a polygon into the KML
 # write KML trailer
 
-use XML::Simple;
 use Geo::Coordinates::OSGB qw(grid_to_ll parse_landranger_grid format_grid_GPS);
 use Geo::Coordinates::OSTN02 qw(OSGB36_to_ETRS89);
 use Getopt::Std;

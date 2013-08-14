@@ -1,6 +1,8 @@
 #! perl -w
-# Toby Thurston ---  7 Sep 2007
+# Toby Thurston --- 16 Apr 2009
 use strict;
+
+# This test data is taken directly from the OS publications about OSTN02
 
 # StationName     Eeg°in'9_Lat_Sec  EDeg°in'_Long_Sec  ETRS89_Height  ETRS89_East  ETRS89_North  OSGB36_East  OSGB36_North  ODN_Height
 my %test_input = (
@@ -53,8 +55,6 @@ use Geo::Coordinates::OSGB   qw/grid_to_ll ll_to_grid/;
 
 use Test::Simple tests => 168;
 
-my $eps  = 0.002; # within 2mm is OK
-
 for my $k (sort keys %test_input ) {
     my ($lat,$lon, $z) = @{$test_input{$k}}[0,1,2];
     my ($x,$y)         = @{$test_input{$k}}[3,4];
@@ -62,12 +62,16 @@ for my $k (sort keys %test_input ) {
     ok( $gotx == $x && $goty == $y , "Create X Y: $k: $x:$gotx $y:$goty" );
 }
 
+my $eps  = 0.001000001; # within 1mm (near as dammit)
 for my $k (sort keys %test_input ) {
     my ($lat,$lon, $z) = @{$test_input{$k}}[0,1,2];
     my ($x,$y)         = @{$test_input{$k}}[3,4];
     my ($e,$n,$h)      = @{$test_input{$k}}[5,6,7];
     my ($gote, $gotn, $goth) = ETRS89_to_OSGB36($x, $y, $z);
-    ok( abs($gote-$e)<$eps && abs($gotn-$n)<$eps && abs($goth-$h)<$eps, "ETRS89_to_OSGB36: $k" );
+    my $de = abs($gote-$e);
+    my $dn = abs($gotn-$n);
+    my $dh = abs($goth-$h);
+    ok( $de<$eps && $dn<$eps && $dh<$eps, "ETRS89_to_OSGB36: $k : $de $dn :: $dh" );
 }
 
 for my $k (sort keys %test_input ) {
@@ -75,7 +79,10 @@ for my $k (sort keys %test_input ) {
     my ($x,$y)         = @{$test_input{$k}}[3,4];
     my ($e,$n,$h)      = @{$test_input{$k}}[5,6,7];
     my ($gotX, $gotY, $gotZ) = OSGB36_to_ETRS89($e, $n, $h);
-    ok( abs($gotX-$x)<$eps && abs($gotY-$y)<$eps && abs($gotZ-$z)<$eps, "OSGB36_to_ETRS89: $k" );
+    my $dx = abs($gotX-$x);
+    my $dy = abs($gotY-$y);
+    my $dz = abs($gotZ-$z);
+    ok( $dx<$eps && $dx<$eps && $dx<$eps, "OSGB36_to_ETRS89: $k : $dx $dy :: $dz" );
 }
 
 $eps = 1.1e-6; # decimal degrees, which is about 20cm latitude, 10cm longitude

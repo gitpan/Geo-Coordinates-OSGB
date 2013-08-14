@@ -1,5 +1,11 @@
 Revision history for Perl extension Geo::Coordinates::OSGB
 
+2.05  31 August 2013
+
+    - Put blank lines back in OSTN02 to prevent pod2html taking an age during install
+    - Refactored OSGB and OSTN02 lightly to conform more closely to "Perl Best Practices"
+    - corrected corner coordinate data for Landranger sheets 1 and 185
+
 2.04  6 November 2008
 
     - Rework search of OSTN02 data to improve performance and reliability

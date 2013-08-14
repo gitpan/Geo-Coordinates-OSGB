@@ -5,8 +5,7 @@ WriteMakefile(
   NAME		 => 'Geo::Coordinates::OSGB',
   VERSION_FROM   => 'lib/Geo/Coordinates/OSGB.pm',
   ABSTRACT_FROM  => 'lib/Geo/Coordinates/OSGB.pm',
-  # force tar to set permissions properly for new indexer
-  dist		 => {TARFLAGS => '--create --verbose --mode=0755 --file '},
+  dist		 => {TARFLAGS => '-cvf'},
 );
 
 

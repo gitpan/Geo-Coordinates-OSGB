@@ -7,7 +7,6 @@ lib/Geo/Coordinates/OSTN02.pm
 bng_to_ll.pl
 ll_to_bng.pl
 zero-points.pl
-lr-index.txt
 make_kml_index.pl
 plotmaps.pl
 plotmaps.pdf
