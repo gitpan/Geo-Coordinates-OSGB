@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use Carp;
 
-our $VERSION = '2.05';
+our $VERSION = '2.06';
 our %EXPORT_TAGS = (
     all => [ qw( ll_to_grid grid_to_ll
                  shift_ll_into_WGS84 shift_ll_from_WGS84
@@ -284,7 +284,7 @@ my %LR = (
      44 => [ 320_000,   760_000 ] ,
      45 => [ 360_000,   760_000 ] ,
      46 => [  92_000,   733_000 ] ,
-     47 => [ 120_000,   732_000 ] ,
+     47 => [ 120_000,   733_000 ] ,
      48 => [ 120_000,   710_000 ] ,
      49 => [ 160_000,   720_000 ] ,
      50 => [ 200_000,   710_000 ] ,
@@ -652,16 +652,16 @@ sub parse_ISO_ll {
 }
 
 #     Latitude and Longitude in Degrees:
-#         ±DD.DDDD±DDD.DDDD/         (eg +12.345-098.765/)
+#         sDD.DDDDsDDD.DDDD/         (eg +12.345-098.765/)
 #      Latitude and Longitude in Degrees and Minutes:
-#         ±DDMM.MMMM±DDDMM.MMMM/     (eg +1234.56-09854.321/)
+#         sDDMM.MMMMsDDDMM.MMMM/     (eg +1234.56-09854.321/)
 #      Latitude and Longitude in Degrees, Minutes and Seconds:
-#         ±DDMMSS.SSSS±DDDMMSS.SSSS/ (eg +123456.7-0985432.1/)
+#         sDDMMSS.SSSSsDDDMMSS.SSSS/ (eg +123456.7-0985432.1/)
 #
 #   where:
 #
-#        ±DD   = three-digit integer degrees part of latitude (through -90 ~ -00 ~ +90)
-#        ±DDD  = four-digit integer degrees part of longitude (through -180 ~ -000 ~ +180)
+#        sDD   = three-digit integer degrees part of latitude (through -90 ~ -00 ~ +90)
+#        sDDD  = four-digit integer degrees part of longitude (through -180 ~ -000 ~ +180)
 #        MM    = two-digit integer minutes part (00 through 59)
 #        SS    = two-digit integer seconds part (00 through 59)
 #        .DDDD = variable-length fraction part in degrees
@@ -681,15 +681,15 @@ sub parse_ISO_ll {
 #
 #   Altitude can be added optionally.
 #      Latitude, Longitude (in Degrees) and Altitude:
-#         ±DD.DDDD±DDD.DDDD±AAA.AAA/         (eg +12.345-098.765+15.9/)
+#         sDD.DDDDsDDD.DDDDsAAA.AAA/         (eg +12.345-098.765+15.9/)
 #      Latitude, Longitude (in Degrees and Minutes) and Altitude:
-#         ±DDMM.MMMM±DDDMM.MMMM±AAA.AAA/     (eg +1234.56-09854.321+15.9/)
+#         sDDMM.MMMMsDDDMM.MMMMsAAA.AAA/     (eg +1234.56-09854.321+15.9/)
 #      Latitude, Longitude (in Degrees, Minutes and Seconds) and Altitude:
-#         ±DDMMSS.SSSS±DDDMMSS.SSSS±AAA.AAA/ (eg +123456.7-0985432.1+15.9/)
+#         sDDMMSS.SSSSsDDDMMSS.SSSSsAAA.AAA/ (eg +123456.7-0985432.1+15.9/)
 #
 #   where:
 #
-#        ±AAA.AAA = variable-length altitude in meters [m].
+#        sAAA.AAA = variable-length altitude in meters [m].
 #
 #        * The unit of altitude is meter [m].
 #        * The integer part and the fraction part of altitude are both variable-length.
@@ -881,7 +881,6 @@ sub _transform {
 
 __END__
 
-
 =head1 NAME
 
 Geo::Coordinates::OSGB - Convert coordinates between Lat/Lon and the British National Grid
@@ -889,33 +888,32 @@ Geo::Coordinates::OSGB - Convert coordinates between Lat/Lon and the British Nat
 An implementation of co-ordinate conversion for England, Wales, and Scotland
 based on formulae published by the Ordnance Survey of Great Britain.
 
-These modules will convert accurately between an OSGB national grid
-reference and lat/lon coordinates based on the OSGB geoid model.  (For an
-explanation of what a geoid model is and why you should care, read the
-L<Theory> section below.) The OSGB geoid model fits mainland Britain very
-well, but is rather different from the international WGS84 model that has
-rapidly become the de facto universal standard model thanks to the
-popularity of GPS devices and maps on the Internet.  So, if you are trying
-to translate from an OSGB grid reference to lat/lon coordinates that can be
-used in Google Earth, Wikipedia, or some other Internet based tool, you will
-need to do two transformations:  first translate your grid ref into OSGB
-lat/lon; then nudge the result into WGS84.  Routines are provided to do both
-of these operations, but they are only approximate.  The inaccuracy of the
-approximation varies according to where you are in the country but may be as
-much as several metres in some areas.
+These modules will convert accurately between an OSGB national grid reference
+and lat/lon coordinates based on the OSGB geoid model.  (For an explanation of
+what a geoid model is and why you should care, read the Theory section
+below.) The OSGB geoid model fits mainland Britain very well, but is rather
+different from the international WGS84 model that has rapidly become the de
+facto universal standard model thanks to the popularity of GPS devices and maps
+on the Internet.  So, if you are trying to translate from an OSGB grid
+reference to lat/lon coordinates that can be used in Google Earth, Wikipedia,
+or some other Internet based tool, you will need to do two transformations:
+first translate your grid ref into OSGB lat/lon; then nudge the result into
+WGS84.  Routines are provided to do both of these operations, but they are only
+approximate.  The inaccuracy of the approximation varies according to where you
+are in the country but may be as much as several metres in some areas.
 
-To get more accurate results you need to combine this module with its
-companion L<Geo::Coordinates::OSTN02> which implements the transformation
-that now defines the relationship between GPS survey data based on WGS84 and
-the British National Grid.  Using this module you should be able to get
-results that are accurate to within a few centimetres, but it is slightly
-slower and requires more memory to run.
+To get more accurate results you need to combine this module with its companion
+L<Geo::Coordinates::OSTN02> which implements the transformation that now
+defines the relationship between GPS survey data based on WGS84 and the British
+National Grid.  Using this module you should be able to get results that are
+accurate to within a few centimetres, but it is slightly slower and requires
+more memory to run.
 
-Note that the OSGB (and therefore this module) does not cover the whole of
-the British Isles, nor even the whole of the UK, in particular it covers
-neither the Channel Islands nor Northern Ireland.  The coverage that is
-included is essentially the same as the coverage provided by the OSGB
-"Landranger" 1:50000 series maps.
+Note that the OSGB (and therefore this module) does not cover the whole of the
+British Isles, nor even the whole of the UK, in particular it covers neither
+the Channel Islands nor Northern Ireland.  The coverage that is included is
+essentially the same as the coverage provided by the OSGB "Landranger" 1:50000
+series maps.
 
 =head1 VERSION
 
@@ -931,17 +929,19 @@ Examine $Geo::Coordinates::OSGB::VERSION for details.
 
 =head1 DESCRIPTION
 
-These modules provide a collection of routines to convert between coordinates expressed as latitude & longtitude and
-map grid references, using the formulae given in the British Ordnance Survey's excellent information leaflet, referenced
-below in L<Theory>.  There are some key concepts explained in that section that you need to know in order to use these
-modules successfully, so you are recommended to at least skim through it now.
+These modules provide a collection of routines to convert between coordinates
+expressed as latitude & longtitude and map grid references, using the formulae
+given in the British Ordnance Survey's excellent information leaflet,
+referenced below in the Theory section.  There are some key concepts explained in that
+section that you need to know in order to use these modules successfully, so
+you are recommended to at least skim through it now.
 
 The module is implemented purely in Perl, and should run on any Perl platform.
 
-In this description `OS' means `the Ordnance Survey of Great Britain': the British
-government agency that produces the standard maps of England, Wales, and
-Scotland.  Any mention of `sheets' or `maps' refers to one or more of the 204
-sheets in the 1:50,000 scale `Landranger' series of OS maps.
+In this description `OS' means `the Ordnance Survey of Great Britain': the
+British government agency that produces the standard maps of England, Wales,
+and Scotland.  Any mention of `sheets' or `maps' refers to one or more of the
+204 sheets in the 1:50,000 scale `Landranger' series of OS maps.
 
 This code is fine tuned to the British national grid system.  You could use it
 elsewhere but you would need to adapt it.  Some starting points for doing this
@@ -992,19 +992,22 @@ Or you can use a single string in ISO 6709 form, like this:
 
     my ($e,$n) = ll_to_grid('+5130-00005/');
 
-To learn exactly what is matched by this last option, read the source of the module and look for the
-definition of C<$ISO_LL_PATTERN>.  Note that the neither the C<+> or C<-> signs at the
-beginning and in the middle, nor the trailing C</> may be omitted.
+To learn exactly what is matched by this last option, read the source of the
+module and look for the definition of C<$ISO_LL_PATTERN>.  Note that the
+neither the C<+> or C<-> signs at the beginning and in the middle, nor the
+trailing C</> may be omitted.
 
-If you have trouble remembering the order of the arguments, note that
-latitude comes before longitude in the alphabet too.
+If you have trouble remembering the order of the arguments, or the returned
+values, note that latitude comes before longitude in the alphabet too, as
+easting comes before northing.
 
-The easting and northing will be returned as a whole number of metres from
-the point of origin of the British Grid (which is a point a little way to the
+The easting and northing will be returned as a whole number of metres from the
+point of origin of the British Grid (which is a point a little way to the
 south-west of the Scilly Isles).
 
-If you want the result presented in a more traditional grid reference format you should pass the results to one of the
-grid formatting routines, which are described below.  Like this.
+If you want the result presented in a more traditional grid reference format
+you should pass the results to one of the grid formatting routines, which are
+described below.  Like this.
 
     $gridref = format_grid_trad(ll_to_grid(51.5,-0.0833));
     $gridref = format_grid_GPS(ll_to_grid(51.5,-0.0833));
@@ -1061,8 +1064,8 @@ C<format_grid_GPS()> returns a string like this:
 
     $gridref = format_grid_GPS(533000, 180000); # TQ 33000 80000
 
-If you call it in a list context, you will get a list of square, easting, and northing, with the easting and northing as
-metres within the grid square.
+If you call it in a list context, you will get a list of square, easting, and
+northing, with the easting and northing as metres within the grid square.
 
     ($sq, $e, $n) = format_grid_GPS(533000, 180000); # (TQ,33000,80000)
 
@@ -1076,10 +1079,13 @@ discussed below in the section on L<Theory>.
 
 =item format_grid_landranger(e,n)
 
-This routine does the same as C<format_grid_trad>, but it appends the number of the relevant OS Landranger 1:50,000
-scale map to the traditional grid reference.  Note that there may be several or no sheets returned.  This is because
-many (most) of the Landranger sheets overlap, and many other valid grid references are not on any of the sheets (because
-they are in the sea or a remote island.  This module does not yet cope with the detached insets on some sheets.
+This routine does the same as C<format_grid_trad>, but it appends the number of
+the relevant OS Landranger 1:50,000 scale map to the traditional grid
+reference.  Note that there may be several or no sheets returned.  This is
+because many (most) of the Landranger sheets overlap, and many other valid grid
+references are not on any of the sheets (because they are in the sea or a
+remote island.  This module does not yet cope with the detached insets on some
+sheets.
 
 In a list context you will get back a list like this:  (square, easting,
 northing, sheet) or (square, easting, northing, sheet1, sheet2) etc.  There
@@ -1149,11 +1155,14 @@ form, such as C<'+5025-00403/'> with the result rounded to the nearest minute (t
 formulae are not much more accurate than this).  In a void context it does
 nothing.
 
-The arguments must be an (easting, northing) pair representing the absolute grid reference in metres from the point of
-origin.  You can get these from a grid reference string by calling C<parse_grid()> first.
+The arguments must be an (easting, northing) pair representing the absolute
+grid reference in metres from the point of origin.  You can get these from a
+grid reference string by calling C<parse_grid()> first.
 
-An optional last argument defines the geoid model to use just as it does for C<ll_to_grid()>.  This is only necessary is
-you are working with the pseudo-grid references produced by the OSTN02 routines.  See L<Theory> for more discussion.
+An optional last argument defines the geoid model to use just as it does for
+C<ll_to_grid()>.  This is only necessary is you are working with the
+pseudo-grid references produced by the OSTN02 routines.  See L<Theory> for more
+discussion.
 
 =item format_ll_trad(lat, lon)
 
@@ -1161,65 +1170,73 @@ Takes latitude and longitude in decimal degrees as arguments and returns a strin
 
     N52:12:34 W002:30:27
 
-In a list context it returns all 8 elements (hemisphere, degrees, minutes, seconds for each of lat and lon) in a list.
-In a void context it does nothing.
+In a list context it returns all 8 elements (hemisphere, degrees, minutes,
+seconds for each of lat and lon) in a list.  In a void context it does nothing.
 
 =item format_ll_ISO(lat, lon)
 
-Takes latitude and longitude in decimal degrees as arguments and returns a string like this
+Takes latitude and longitude in decimal degrees as arguments and returns a
+string like this
 
     +5212-00230/
 
-In a list context it returns all 6 elements (sign, degrees, minutes for each of lat and lon) in a list.
-In a void context it does nothing.
+In a list context it returns all 6 elements (sign, degrees, minutes for each of
+lat and lon) in a list.  In a void context it does nothing.
 
 
 =item parse_ISO_ll(ISO_string)
 
 Reads an ISO 6709 formatted location identifier string such as '+5212-00230/'.
-To learn exactly what is matched by this last option, read the source of the module and look for the
-definition of C<$ISO_LL_PATTERN>.  Note that the neither the C<+> or C<-> signs at the
-beginning and in the middle, nor the trailing C</> may be omitted.  These strings can also include
-the altitude of a point, in metres, like this: '+5212-00230+140/'.  If you omit the altitude, 0 is assumed.
+To learn exactly what is matched by this last option, read the source of the
+module and look for the definition of C<$ISO_LL_PATTERN>.  Note that the
+neither the C<+> or C<-> signs at the beginning and in the middle, nor the
+trailing C</> may be omitted.  These strings can also include the altitude of a
+point, in metres, like this: '+5212-00230+140/'.  If you omit the altitude, 0
+is assumed.
 
-In a list context it returns ($lat, $lon, $altitude).  So if you don't want or don't need the altitude, you should just
-drop it, for example like this:
+In a list context it returns ($lat, $lon, $altitude).  So if you don't want or
+don't need the altitude, you should just drop it, for example like this:
 
    my ($lat, $lon) = parse_ISO_ll('+5212-00230/')
 
-In normal use you won't notice this.  In particular you don't need to worry about it when
-passing the results on to C<ll_to_grid>, as that routine looks for an optional altitude after the lat/lon.
+In normal use you won't notice this.  In particular you don't need to worry
+about it when passing the results on to C<ll_to_grid>, as that routine looks
+for an optional altitude after the lat/lon.
 
 =item shift_ll_from_WGS84(lat, lon, altitude)
 
-Takes latitude and longitude in decimal degrees (plus an optional altitude in metres) from a WGS84 source (such as your
-GPS handset or Google Earth) and returns an approximate equivalent latitude and longitude according to the OSGM02 model.
-To determine the OSGB grid reference for given WGS84 lat/lon coordinates, you should call this before
-you call C<ll_to_grid>.  Like so:
+Takes latitude and longitude in decimal degrees (plus an optional altitude in
+metres) from a WGS84 source (such as your GPS handset or Google Earth) and
+returns an approximate equivalent latitude and longitude according to the
+OSGM02 model.  To determine the OSGB grid reference for given WGS84 lat/lon
+coordinates, you should call this before you call C<ll_to_grid>.  Like so:
 
   ($lat, $lon, $alt) = shift_ll_from_WGS84($lat, $lon, $alt);
   ($e, $n) = ll_to_grid($lat,$lon);
 
-You don't need to call this to determine a grid reference from lat/lon coordinates printed on OSGB maps (the so called
-"graticule intersections" marked in pale blue on the Landranger series).
+You don't need to call this to determine a grid reference from lat/lon
+coordinates printed on OSGB maps (the so called "graticule intersections"
+marked in pale blue on the Landranger series).
 
-This routine provide a fast approximation; for a slower, more accurate approximation use the companion
-L<Geo::Coordinates::OSTN02> modules.
+This routine provide a fast approximation; for a slower, more accurate
+approximation use the companion L<Geo::Coordinates::OSTN02> modules.
 
 =item shift_ll_into_WGS84(lat, lon, altitude)
 
-Takes latitude and longitude in decimal degrees (plus an optional altitude in metres) from an OSGB source (such as
-coordinates you read from a Landranger map, or more likely coordinates returned from C<grid_to_ll()>) and adjusts them
+Takes latitude and longitude in decimal degrees (plus an optional altitude in
+metres) from an OSGB source (such as coordinates you read from a Landranger
+map, or more likely coordinates returned from C<grid_to_ll()>) and adjusts them
 to fit the WGS84 model.
 
-To determine WGS84 lat/lon coordinates (for use in Wikipedia, or Google Earth etc) for a given OSGB grid
-reference, you should call this after you call C<grid_to_ll()>.  Like so:
+To determine WGS84 lat/lon coordinates (for use in Wikipedia, or Google Earth
+etc) for a given OSGB grid reference, you should call this after you call
+C<grid_to_ll()>.  Like so:
 
   ($lat, $lon) = grid_to_ll($e, $n);
   ($lat, $lon, $alt) = shift_ll_into_WGS84($lat, $lon, $alt);
 
-This routine provide a fast approximation; for a slower, more accurate approximation use the companion
-L<Geo::Coordinates::OSTN02> modules.
+This routine provide a fast approximation; for a slower, more accurate
+approximation use the companion L<Geo::Coordinates::OSTN02> modules.
 
 =back
 
@@ -1228,8 +1245,8 @@ L<Geo::Coordinates::OSTN02> modules.
 
 The algorithms and theory for these conversion routines are all from
 I<A Guide to Coordinate Systems in Great Britain>
-published by the OSGB, April 1999 and available at
-http://www.ordnancesurvey.co.uk/oswebsite/gps/information/index.html
+published by the OSGB, April 1999 (Revised Dec 2010) and available at
+http://www.ordnancesurvey.co.uk/.
 
 You may also like to read some of the other introductory material there.
 Should you be hoping to adapt this code to your own custom Mercator
@@ -1257,7 +1274,7 @@ suitable point to start the grid that minimizes the inevitable distortion
 that is involved in a Mercator projection from spherical to Euclidean
 coordinates.  Such a point should be on a meridian that bisects the area of
 interest and is nearer to the equator than the whole area.  So for Britain
-the point of origin is 2°W and 49°N (in the OSGB geoid model) which is near
+the point of origin is 2W and 49N (in the OSGB geoid model) which is near
 the Channel Islands.  This point should be set as the C<ORIGIN_LONGITUDE>
 and C<ORIGIN_LATITUDE> parameters (as above) measured in radians.  Having
 this True Point of Origin in the middle and below (or above if you are
@@ -1278,7 +1295,7 @@ to slightly less than 1.
 =head2 The British National Grid
 
 One consequence of the True Point of Origin of the British Grid being set to
-C<+4900-00200/> is that all the vertical grid lines are parallel to the 2°W
+C<+4900-00200/> is that all the vertical grid lines are parallel to the 2W
 meridian; you can see this on the appropriate OS maps (for example
 Landranger sheet 184), or on the C<plotmaps.pdf> picture supplied with this
 package.  The effect of moving the False Point of Origin to the far south
@@ -1388,7 +1405,7 @@ fledgling global positioning system (GPS).  This model is known as WGS84, and
 is designed to be a compromise model that works equally well for all parts of
 the globe (or equally poorly depending on your point of view --- for one
 thing WGS84 defines the Greenwich observatory in London to be not quite on
-the 0° meridian).  Nevertheless WGS84 has grown in importance as GPS systems
+the zero meridian).  Nevertheless WGS84 has grown in importance as GPS systems
 have become consumer items and useful global mapping tools (such as Google
 Earth) have become freely available through the Internet.  Most latitude and
 longitude coordinates quoted on the Internet (for example in Wikipedia) are
@@ -1552,13 +1569,13 @@ it under the same terms as Perl itself.
 
 =head1 AUTHOR
 
-Toby Thurston -- 13 Aug 2013 
+Toby Thurston -- 04 Oct 2013 
 
 toby@cpan.org
 
 =head1 SEE ALSO
 
-The UK Ordnance Survey's theory paper referenced above in L<Theory>.
+The UK Ordnance Survey's theory paper referenced above.
 
 See L<Geo::Coordinates::Convert> for a general approach (not based on the above paper).
 

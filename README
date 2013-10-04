@@ -18,7 +18,7 @@ National Grid from GPS surveys.  This module provides accurate conversion
 between the British National Grid and latitude/longitude coordinates based on
 the global WGS84 geoid model (the one used by all GPS devices, and popular
 mapping tools such as Google Earth).  The OSTN02 data is rather large (6M
-bytes), and will take a couple of seconds to load even on a quick machine,
+bytes), and will take a few microseconds to load even on a new machine,
 but once loaded conversions should be reasonably quick.
 
 INSTALLATION
@@ -38,7 +38,7 @@ hand; just unzip it to some temporary home, then do the usual thing:
         [sudo] make install
 
 The last tests called by "make test" *will* generate some harmless warnings.
-The full suite of tests takes less than 10 seconds on my machine. 
+The full suite of tests takes less than 2 seconds on my machine. 
 You may or may not need sudo depending on how you have set up your system.
 
 DEPENDENCIES

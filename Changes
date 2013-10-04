@@ -1,5 +1,11 @@
 Revision history for Perl extension Geo::Coordinates::OSGB
 
+2.06  October 2013
+
+    - removed precise URL for theory paper - the OS keep moving it about, so just Google for the name
+    - removed non-ascii characters from POD in OSGB.pm to avoid encoding issue
+    
+
 2.05  31 August 2013
 
     - Put blank lines back in OSTN02 to prevent pod2html taking an age during install
